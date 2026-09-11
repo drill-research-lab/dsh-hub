@@ -30,3 +30,18 @@ jobs:
       - run: python -m unittest discover -s tests -v
         env:
           REDIS_URL: redis://localhost:6379/0
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # compose.yaml interpolates its whole file up front, and
+      # PANEL_API_TOKEN has a `${...:?}` required check even though nothing
+      # about a *build* (as opposed to actually running the stack) needs a
+      # real token -- a placeholder value is enough to get past that check.
+      - name: Write a placeholder .env for build-time variable substitution
+        run: |
+          cp .env.example .env
+          sed -i 's/^PANEL_API_TOKEN=.*/PANEL_API_TOKEN=ci-placeholder-token/' .env
+      - run: docker compose build
+      - run: docker compose --profile build build user-image
