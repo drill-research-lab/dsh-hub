@@ -1,0 +1,13 @@
+# Real secrets -- only .env.example is meant to be committed.
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node (dsh install artifacts, if ever run locally outside a container)
+node_modules/
+
+# Editor/OS cruft
+.DS_Store

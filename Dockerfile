@@ -1,0 +1,25 @@
+FROM node:24-bookworm-slim AS node
+
+FROM python:3.12-slim-bookworm
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash git ripgrep curl ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+# Official GitHub release and npm package verified on 2026-09-11.
+ARG DSH_VERSION=0.1.5-rc.2
+RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" && npm cache clean --force
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    'jupyter-server>=2,<3' 'jupyter-server-proxy==4.5.0' \
+    && useradd --create-home --uid 1000 demo
+COPY singleuser/harness_proxy.py singleuser/start_harness.py singleuser/harness_bridge.js singleuser/dispatcher-provider.yaml singleuser/queue_status_proxy.py /opt/demo/
+COPY singleuser/jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
+ENV PYTHONPATH=/opt/demo
+ENV DSH_HOME=/home/demo/.dsh
+USER demo
+WORKDIR /home/demo
+EXPOSE 8888
+CMD ["jupyterhub-singleuser", "--ip=0.0.0.0", "--port=8888"]

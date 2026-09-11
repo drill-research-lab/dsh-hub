@@ -1,0 +1,33 @@
+# Default dsh provider pointing at the lab Dispatcher (design doc section 6).
+#
+# Seeded once into $DSH_HOME/patches/dispatcher-provider.yaml by
+# start_harness.py on first boot, then left alone -- edit your copy freely
+# to add your own providers (see the "my-own-openai" example in README.md);
+# this file only supplies the default, it is never re-copied over an
+# existing one.
+#
+# baseURL and the API key are both resolved live from environment variables
+# injected by the Hub at container spawn time (DISPATCHER_BASE_URL,
+# DISPATCHER_API_KEY via apiKeyEnv), not hardcoded, so this file keeps
+# working even if the Dispatcher's address changes later.
+- id: llm-pi-ai
+  config:
+    providers:
+      lab-dispatcher:
+        displayName: Lab Dispatcher
+        apiKeyEnv: DISPATCHER_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.DISPATCHER_BASE_URL
+        models:
+          - id: deepseek-v4-flash-0731
+            name: DeepSeek V4 Flash (Lab)
+            contextWindow: 384000
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              high: high
+- id: agent-default-model
+  config:
+    provider: lab-dispatcher
+    model: deepseek-v4-flash-0731

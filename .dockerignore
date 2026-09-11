@@ -1,0 +1,15 @@
+*
+!Dockerfile
+!requirements.txt
+!hub/
+!hub/**
+!singleuser/
+!singleuser/**
+!common/
+!common/**
+!dispatcher/
+!dispatcher/**
+!panel/
+!panel/**
+**/__pycache__/
+**/*.pyc

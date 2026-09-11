@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Lock down the Spark vLLM endpoint (design doc section 6: "prevent bypassing
+# the queue") so only the Dispatcher container can reach it directly --
+# every other container on the shared Docker network (every user's spawned
+# container included) gets dropped before it ever leaves this host.
+#
+# NOT VERIFIED FOR REAL. Written and reasoned through, but this repo's dev
+# sandbox turned out to be Docker Desktop's WSL2 integration: the actual
+# dockerd, and the real dsh-demo bridge network these rules need to attach
+# to, run inside Docker Desktop's own separate backend VM -- not in the
+# shell any script here would run from, and not reachable as root from
+# there either. So there was no way to confirm from this environment that
+# these rules actually reach the real bridge. This needs to be run (and
+# this comment updated) on the actual target host: a Linux machine running
+# dockerd natively -- e.g. the production Proxmox VM the design doc
+# assumes -- with real root/iptables access in the SAME network namespace
+# as the `dsh-demo` bridge. Same status as disk quotas (design doc section
+# 3): written, not yet tested for real.
+#
+# Why this rule lives on the Docker host, not the Spark host: Dispatcher
+# and every user container share one Docker bridge network (dsh-demo) and
+# both reach Spark over the LAN, so from Spark's side both look like the
+# same NAT'd source IP -- a firewall on the Spark host can't tell them
+# apart. Only *before* that NAT (i.e. right here, on this Docker host) do
+# Dispatcher and a user container still have distinct source IPs to filter
+# on.
+#
+# Usage:
+#   ./spark-lockdown-enable.sh
+# Reads SPARK_HOST/SPARK_PORT from the environment if set, otherwise parses
+# them out of SPARK_BASE_URL in this repo's .env. Re-run this any time the
+# dispatcher container is recreated -- its IP on the bridge can change, and
+# this script always re-resolves it fresh (see spark-lockdown-disable.sh,
+# which this calls first to make re-running idempotent instead of stacking
+# a second, stale rule pair).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DOCKER_NETWORK="${DOCKER_NETWORK_NAME:-dsh-demo}"
+DISPATCHER_CONTAINER="${DISPATCHER_CONTAINER:-dispatcher}"
+COMMENT_TAG="dsh-spark-lockdown"
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Must run as root (iptables needs it)." >&2
+  exit 1
+fi
+
+if [[ -z "${SPARK_HOST:-}" || -z "${SPARK_PORT:-}" ]]; then
+  SPARK_BASE_URL=""
+  if [[ -f "$REPO_ROOT/.env" ]]; then
+    SPARK_BASE_URL="$(grep -E '^SPARK_BASE_URL=' "$REPO_ROOT/.env" | tail -1 | cut -d= -f2-)"
+  fi
+  if [[ -z "$SPARK_BASE_URL" ]]; then
+    echo "Set SPARK_HOST and SPARK_PORT, or have SPARK_BASE_URL in $REPO_ROOT/.env" >&2
+    exit 1
+  fi
+  # e.g. http://192.168.101.70:8888/v1 -> host=192.168.101.70 port=8888
+  SPARK_HOST="$(echo "$SPARK_BASE_URL" | sed -E 's#^[a-z]+://##; s#[:/].*##')"
+  SPARK_PORT="$(echo "$SPARK_BASE_URL" | sed -E 's#^[a-z]+://[^:/]+:?##; s#/.*##')"
+  SPARK_PORT="${SPARK_PORT:-80}"
+fi
+
+# Try both the bare compose service name and the project-prefixed
+# container name -- which one `docker inspect` accepts depends on the
+# compose project name in use on the real host, which this script can't
+# assume.
+DISPATCHER_IP=""
+for name in "$DISPATCHER_CONTAINER" "new-dsh-${DISPATCHER_CONTAINER}-1"; do
+  DISPATCHER_IP="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$DOCKER_NETWORK\"}}{{.IPAddress}}{{end}}" "$name" 2>/dev/null || true)"
+  [[ -n "$DISPATCHER_IP" ]] && break
+done
+if [[ -z "$DISPATCHER_IP" ]]; then
+  echo "Could not resolve the Dispatcher container's IP on network '$DOCKER_NETWORK'." >&2
+  echo "Is it running? If it's named something else, set DISPATCHER_CONTAINER=<name>." >&2
+  exit 1
+fi
+
+NETWORK_SUBNET="$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "$DOCKER_NETWORK")"
+if [[ -z "$NETWORK_SUBNET" ]]; then
+  echo "Could not resolve the '$DOCKER_NETWORK' network's subnet." >&2
+  exit 1
+fi
+
+"$SCRIPT_DIR/spark-lockdown-disable.sh" --quiet || true
+
+# Order matters: the ACCEPT for Dispatcher must be inserted *before* the
+# DROP for the whole subnet -- iptables takes the first matching rule, and
+# Dispatcher's own IP is itself inside that subnet.
+iptables -I DOCKER-USER 1 -s "$DISPATCHER_IP" -d "$SPARK_HOST" -p tcp --dport "$SPARK_PORT" -j ACCEPT -m comment --comment "$COMMENT_TAG"
+iptables -I DOCKER-USER 2 -s "$NETWORK_SUBNET" -d "$SPARK_HOST" -p tcp --dport "$SPARK_PORT" -j DROP -m comment --comment "$COMMENT_TAG"
+
+echo "Locked down: only $DISPATCHER_IP (dispatcher) may reach $SPARK_HOST:$SPARK_PORT from $NETWORK_SUBNET."
+echo "Re-run this script if the dispatcher container is ever recreated (its IP can change)."

@@ -1,0 +1,128 @@
+services:
+  hub:
+    build:
+      context: .
+      dockerfile: hub/Dockerfile
+    ports:
+      - "127.0.0.1:9000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DOCKER_NETWORK_NAME: dsh-demo
+      # Talk to Docker through the socket proxy instead of mounting
+      # docker.sock directly into the Hub container.
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - hub-data:/data
+      - ./hub/certs:/etc/jupyterhub-certs:ro
+    networks:
+      default:
+        aliases: [hub]
+      docker-api: {}
+      dsh-internal: {}  # to mint each container's Dispatcher API key at spawn time
+    depends_on:
+      - docker-socket-proxy
+      - redis
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # Only the endpoints DockerSpawner actually calls (create_container,
+      # start, stop, remove_container, inspect_container, inspect_image,
+      # create_volume) are enabled. Everything else is explicitly denied so
+      # the allowed surface is visible here rather than relying on the
+      # image's defaults.
+      POST: 1 # required globally for create/start/stop/remove (write ops)
+      CONTAINERS: 1
+      IMAGES: 1 # inspect_image is called even with pull_policy=never
+      VOLUMES: 1 # per-user home volume creation
+      PING: 1
+      VERSION: 1
+      EVENTS: 0
+      NETWORKS: 0
+      EXEC: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      GRPC: 0
+      INFO: 0
+      NODES: 0
+      PLUGINS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      AUTH: 0
+    networks:
+      - docker-api
+    restart: unless-stopped
+  user-image:
+    image: dsh-demo-user:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: [build]
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - dsh-internal
+    restart: unless-stopped
+  dispatcher:
+    build:
+      context: .
+      dockerfile: dispatcher/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      default: {}       # reachable by user containers directly (dsh-demo)
+      dsh-internal: {}  # to reach redis
+    depends_on:
+      - redis
+    restart: unless-stopped
+  panel:
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
+    environment:
+      JUPYTERHUB_SERVICE_PREFIX: /services/panel/
+      JUPYTERHUB_API_URL: http://hub:8081/hub/api
+      JUPYTERHUB_BASE_URL: /
+      JUPYTERHUB_CLIENT_ID: service-panel
+      JUPYTERHUB_API_TOKEN: ${PANEL_API_TOKEN:?set PANEL_API_TOKEN in .env}
+      REDIS_URL: redis://redis:6379/0
+      DISPATCHER_CONCURRENCY: ${DISPATCHER_CONCURRENCY:-1}
+      DEFAULT_CPU_CORES: ${DEFAULT_CPU_CORES:-2.0}
+      DEFAULT_MEMORY_MB: ${DEFAULT_MEMORY_MB:-4096}
+      # To apply a resource-limit change live (docker update) to a container
+      # that's already running, without waiting for its next respawn.
+      DOCKER_API_URL: http://docker-socket-proxy:2375
+      CONTAINER_NAME_TEMPLATE: dsh-demo-{username}
+    networks:
+      default: {}       # reachable by Hub's proxy (/services/panel/)
+      dsh-internal: {}  # to reach redis
+      docker-api: {}    # to reach docker-socket-proxy for live resource-limit updates
+    depends_on:
+      - redis
+    restart: unless-stopped
+networks:
+  default:
+    name: dsh-demo
+  docker-api:
+    internal: true
+  dsh-internal:
+    internal: true
+volumes:
+  hub-data:
+  redis-data:

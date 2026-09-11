@@ -1,0 +1,51 @@
+{% extends "templates/login.html" %}
+{% set announcement = '' %}
+{% block login_container %}
+  <div class="islab-login-brand">
+    <div class="islab-mark">
+      <svg width="30" height="30" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <path d="M4 4 L4 22 M4 4 L14 4 M4 13 L11 13" stroke="#5FD3A6" stroke-width="2.4"></path>
+        <path d="M22 22 L22 4 M22 22 L12 22" stroke="#5B6470" stroke-width="2.4"></path>
+      </svg>
+      <span class="islab-title">islab</span>
+    </div>
+    <div class="islab-subtitle">國立臺灣師範大學資訊工程學系<br>應用密碼與資訊安全實驗室</div>
+  </div>
+  <form action="{{ authenticator_login_url }}" method="post" role="form">
+    <div class="auth-form-header">
+      <h1>登入實驗室工作站</h1>
+    </div>
+    <div class="auth-form-body m-auto">
+      <p id="insecure-login-warning" class="hidden alert alert-warning">
+        警告：目前連線未加密，帳號密碼會以明文傳送，僅建議在受信任的內部網路使用。
+      </p>
+      {% if login_error %}<p class="login_error">{{ login_error }}</p>{% endif %}
+      <input type="hidden" name="_xsrf" value="{{ xsrf }}" />
+      <label for="username_input">帳號</label>
+      <input id="username_input"
+             type="text"
+             autocapitalize="off"
+             autocorrect="off"
+             autocomplete="username"
+             class="form-control"
+             name="username"
+             value="{{ username }}"
+             autofocus="autofocus" />
+      <label for="password_input">密碼</label>
+      <input id="password_input"
+             type="password"
+             class="form-control"
+             autocomplete="current-password"
+             name="password" />
+      <div class="feedback-container">
+        <input id="login_submit" type="submit" class="btn btn-jupyter form-control" value="登入" tabindex="3" />
+        <div class="feedback-widget hidden">
+          <i class="fa fa-spinner"></i>
+        </div>
+      </div>
+      <div class="islab-subtitle" style="margin-top: 16px; text-align: left;">
+        請使用 LLDAP 帳號與密碼登入，驗證成功後會開啟你的個人容器。
+      </div>
+    </div>
+  </form>
+{% endblock login_container %}

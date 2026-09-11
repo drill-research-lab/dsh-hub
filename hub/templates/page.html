@@ -1,0 +1,116 @@
+{% extends "templates/page.html" %}
+{% block title %}應用密碼與資訊安全實驗室{% endblock title %}
+{% block meta %}
+  <meta name="description" content="應用密碼與資訊安全實驗室 - 國立臺灣師範大學資訊工程學系">
+  <meta name="keywords" content="islab, NTNU CSIE, 應用密碼與資訊安全實驗室">
+{% endblock meta %}
+{% block logo %}
+  <span id="jupyterhub-logo" class="navbar-brand">
+    <a href="{{ logo_url or base_url }}" class="islab-brand" title="應用密碼與資訊安全實驗室">
+      <svg width="22" height="22" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <path d="M4 4 L4 22 M4 4 L14 4 M4 13 L11 13" stroke="#5FD3A6" stroke-width="2.2"></path>
+        <path d="M22 22 L22 4 M22 22 L12 22" stroke="#5B6470" stroke-width="2.2"></path>
+      </svg>
+      <span class="islab-wordmark">islab</span>
+    </a>
+  </span>
+{% endblock logo %}
+{% block stylesheet %}
+  {{ super() }}
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+  <style>
+    :root {
+      --islab-bg: #14171C;
+      --islab-bg-elevated: #181B21;
+      --islab-border: #262B33;
+      --islab-text: #DDE2E8;
+      --islab-text-muted: #7C8794;
+      --islab-text-faint: #5B6470;
+      --islab-accent: #5FD3A6;
+      --islab-accent-contrast: #0B1410;
+    }
+    html, body {
+      background: var(--islab-bg) !important;
+      color: var(--islab-text) !important;
+      font-family: "Noto Sans TC", system-ui, sans-serif;
+    }
+    h1, h2, h3, h4, .islab-wordmark, .auth-form-header, .islab-login-brand .islab-title {
+      font-family: "Manrope", "Noto Sans TC", sans-serif;
+    }
+    label, .form-label, small, .version_footer, .navbar-nav .nav-link, code {
+      font-family: "IBM Plex Mono", "Noto Sans TC", monospace;
+    }
+    a { color: var(--islab-accent); }
+    a:hover { color: var(--islab-accent); opacity: 0.8; }
+
+    #dark-theme-toggle { display: none !important; }
+
+    .navbar { background: var(--islab-bg-elevated) !important; border-bottom: 1px solid var(--islab-border); }
+    .navbar .navbar-nav .nav-link { color: var(--islab-text-muted) !important; }
+    .navbar .navbar-nav .nav-link:hover,
+    .navbar .navbar-nav .nav-link:focus { color: var(--islab-text) !important; background-color: transparent !important; }
+    .navbar #login_widget span { color: var(--islab-text-muted); }
+
+    .islab-brand { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .islab-wordmark { font-weight: 700; font-size: 17px; color: #F1F4F7; }
+
+    .btn-jupyter, .btn-primary {
+      background-color: var(--islab-accent) !important;
+      border-color: var(--islab-accent) !important;
+      color: var(--islab-accent-contrast) !important;
+    }
+    .btn-jupyter:hover, .btn-primary:hover { opacity: 0.88; }
+
+    .btn-outline-contrast {
+      border-color: var(--islab-accent) !important;
+      color: var(--islab-accent) !important;
+      background: transparent !important;
+    }
+    .btn-outline-contrast:hover { background: var(--islab-accent) !important; color: var(--islab-accent-contrast) !important; }
+
+    .form-control, .form-select {
+      background: var(--islab-bg-elevated) !important;
+      border-color: var(--islab-border) !important;
+      color: var(--islab-text) !important;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--islab-accent) !important;
+      box-shadow: 0 0 0 3px rgba(95, 211, 166, 0.25) !important;
+      outline-color: var(--islab-accent) !important;
+    }
+    .form-control::placeholder { color: var(--islab-text-faint); opacity: 1; }
+
+    .card, .bg-body-tertiary, .version_footer, .dropdown-menu {
+      background: var(--islab-bg-elevated) !important;
+      color: var(--islab-text) !important;
+      border-color: var(--islab-border) !important;
+    }
+    .dropdown-item { color: var(--islab-text) !important; }
+    .dropdown-item:hover { background: var(--islab-bg) !important; color: var(--islab-accent) !important; }
+
+    .table {
+      --bs-table-color: var(--islab-text);
+      --bs-table-bg: transparent;
+      --bs-table-border-color: var(--islab-border);
+      color: var(--islab-text);
+    }
+
+    #login-main .auth-form-header {
+      background: var(--islab-bg-elevated) !important;
+      color: var(--islab-text) !important;
+      border: 1px solid var(--islab-border);
+      border-bottom: none;
+    }
+    #login-main .auth-form-body {
+      background: var(--islab-bg-elevated) !important;
+      border-color: var(--islab-border) !important;
+      color: var(--islab-text);
+    }
+
+    .islab-login-brand { display: flex; flex-direction: column; gap: 10px; align-items: center; margin-bottom: 28px; }
+    .islab-login-brand .islab-mark { display: flex; align-items: center; gap: 10px; }
+    .islab-login-brand .islab-title { font-weight: 700; font-size: 22px; color: #F1F4F7; }
+    .islab-login-brand .islab-subtitle { font-size: 12px; color: var(--islab-text-muted); text-align: center; line-height: 1.6; }
+  </style>
+{% endblock stylesheet %}
