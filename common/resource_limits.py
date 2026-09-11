@@ -1,4 +1,5 @@
-"""Per-user CPU/memory limits (design doc section 3), shared by Hub and Panel.
+"""Per-user CPU/memory/disk limits (design doc section 3), shared by Hub and
+Panel.
 
 Redis is the source of truth so a limit an admin sets is available
 immediately both to a future spawn (Hub reads it via DockerSpawner's
@@ -6,26 +7,43 @@ mem_limit/cpu_limit callables) and to an already-running container (Panel
 applies it live with a `docker update`, through the same docker-socket-proxy
 Hub already uses to spawn containers). A user with no entry runs under the
 process-wide defaults, not unlimited.
+
+Disk is the odd one out: XFS project quotas are a host-filesystem concept
+with no Docker API surface at all, so unlike cpu/memory there is nothing
+Panel (containerized, no host root) can call to apply a change live. Panel
+only ever writes the desired disk_mb here; a separate host-side script
+(ops/disk-quota/apply-disk-quotas.sh) reconciles actual quotas against it on
+a timer. See that script for why.
 """
 import time
 
-LIMIT_KEY_PREFIX = "dispatcher:resource-limits:"  # + user -> {cpu, memory_mb, ...} hash
+LIMIT_KEY_PREFIX = "dispatcher:resource-limits:"  # + user -> {cpu, memory_mb, disk_mb, ...} hash
 ALL_LIMITS_KEY = "dispatcher:resource-limits:all"  # set of usernames with a non-default limit
 
 DEFAULT_CPU_CORES = 2.0
 DEFAULT_MEMORY_MB = 4096
+DEFAULT_DISK_MB = 10240
 
 MIN_CPU_CORES = 0.25
 MAX_CPU_CORES = 8.0
 MIN_MEMORY_MB = 512
 MAX_MEMORY_MB = 16384
+MIN_DISK_MB = 1024
+MAX_DISK_MB = 102400
 
 
 class ResourceLimitStore:
-    def __init__(self, redis_client, default_cpu=DEFAULT_CPU_CORES, default_memory_mb=DEFAULT_MEMORY_MB):
+    def __init__(
+        self,
+        redis_client,
+        default_cpu=DEFAULT_CPU_CORES,
+        default_memory_mb=DEFAULT_MEMORY_MB,
+        default_disk_mb=DEFAULT_DISK_MB,
+    ):
         self.redis = redis_client
         self.default_cpu = default_cpu
         self.default_memory_mb = default_memory_mb
+        self.default_disk_mb = default_disk_mb
 
     async def get(self, user):
         """Return this user's effective limit, falling back to the
@@ -37,30 +55,35 @@ class ResourceLimitStore:
                 "user": user,
                 "cpu": self.default_cpu,
                 "memory_mb": self.default_memory_mb,
+                "disk_mb": self.default_disk_mb,
                 "is_default": True,
             }
         return {
             "user": user,
             "cpu": float(data["cpu"]),
             "memory_mb": int(data["memory_mb"]),
+            "disk_mb": int(data["disk_mb"]) if "disk_mb" in data else self.default_disk_mb,
             "is_default": False,
             "updated_at": data.get("updated_at"),
             "updated_by": data.get("updated_by"),
         }
 
-    def validate(self, cpu, memory_mb):
+    def validate(self, cpu, memory_mb, disk_mb):
         if not (MIN_CPU_CORES <= cpu <= MAX_CPU_CORES):
             raise ValueError(f"cpu must be between {MIN_CPU_CORES} and {MAX_CPU_CORES} cores")
         if not (MIN_MEMORY_MB <= memory_mb <= MAX_MEMORY_MB):
             raise ValueError(f"memory_mb must be between {MIN_MEMORY_MB} and {MAX_MEMORY_MB}")
+        if not (MIN_DISK_MB <= disk_mb <= MAX_DISK_MB):
+            raise ValueError(f"disk_mb must be between {MIN_DISK_MB} and {MAX_DISK_MB}")
 
-    async def set(self, user, cpu, memory_mb, actor):
-        self.validate(cpu, memory_mb)
+    async def set(self, user, cpu, memory_mb, disk_mb, actor):
+        self.validate(cpu, memory_mb, disk_mb)
         await self.redis.hset(
             LIMIT_KEY_PREFIX + user,
             mapping={
                 "cpu": cpu,
                 "memory_mb": memory_mb,
+                "disk_mb": disk_mb,
                 "updated_at": time.time(),
                 "updated_by": actor,
             },

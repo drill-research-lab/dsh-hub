@@ -105,6 +105,7 @@ services:
       DISPATCHER_CONCURRENCY: ${DISPATCHER_CONCURRENCY:-1}
       DEFAULT_CPU_CORES: ${DEFAULT_CPU_CORES:-2.0}
       DEFAULT_MEMORY_MB: ${DEFAULT_MEMORY_MB:-4096}
+      DEFAULT_DISK_MB: ${DEFAULT_DISK_MB:-10240}
       # To apply a resource-limit change live (docker update) to a container
       # that's already running, without waiting for its next respawn.
       DOCKER_API_URL: http://docker-socket-proxy:2375

@@ -18,7 +18,7 @@ from jupyterhub.services.auth import HubOAuthCallbackHandler, HubOAuthenticated
 sys.path.insert(0, "/opt/common")
 from api_keys import ApiKeyStore
 from dispatch_queue import Queue
-from resource_limits import ResourceLimitStore, docker_update_body, DEFAULT_CPU_CORES, DEFAULT_MEMORY_MB
+from resource_limits import ResourceLimitStore, docker_update_body, DEFAULT_CPU_CORES, DEFAULT_MEMORY_MB, DEFAULT_DISK_MB
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 DEFAULT_CONCURRENCY = int(os.environ.get("DISPATCHER_CONCURRENCY", "1"))
@@ -134,16 +134,17 @@ INDEX_HTML = """<!doctype html>
   <h2 style="font-size:1.05rem">容器資源限制</h2>
   <p id="my-limit"></p>
   <div id="limits-admin" hidden>
-    <p>套用後：已有正在跑的容器會立即用 <code>docker update</code> 生效；還沒 spawn 過的使用者會在下次啟動容器時套用。</p>
+    <p>CPU/記憶體套用後：已有正在跑的容器會立即用 <code>docker update</code> 生效，還沒 spawn 過的使用者會在下次啟動容器時套用。磁碟配額沒有「立即生效」——它是主機檔案系統層級的設定，Panel 只會把數值記下來，實際套用要等主機上的 <code>apply-disk-quotas.sh</code> 下一次排程執行（見 README）。</p>
     <div id="limits-form">
       <label>使用者： <input id="limit-user" placeholder="帳號"></label>
       <label>CPU (核)： <input id="limit-cpu" type="number" step="0.25" min="0.25" max="8"></label>
       <label>記憶體 (MB)： <input id="limit-memory" type="number" step="256" min="512" max="16384"></label>
+      <label>磁碟 (MB)： <input id="limit-disk" type="number" step="1024" min="1024" max="102400" placeholder="留空＝不變"></label>
       <button id="limit-save">套用</button>
     </div>
     <p id="limits-msg"></p>
     <table>
-      <thead><tr><th>使用者</th><th>CPU (核)</th><th>記憶體 (MB)</th><th>設定時間</th><th>設定者</th></tr></thead>
+      <thead><tr><th>使用者</th><th>CPU (核)</th><th>記憶體 (MB)</th><th>磁碟 (MB)</th><th>設定時間</th><th>設定者</th></tr></thead>
       <tbody id="limits-rows"></tbody>
     </table>
   </div>
@@ -317,7 +318,7 @@ async function fetchMyLimit() {
   if (!resp.ok) return;
   const data = await resp.json();
   document.getElementById('my-limit').textContent =
-    `你的容器目前限制：CPU ${data.cpu} 核、記憶體 ${data.memory_mb} MB` +
+    `你的容器目前限制：CPU ${data.cpu} 核、記憶體 ${data.memory_mb} MB、磁碟 ${data.disk_mb} MB` +
     (data.is_default ? '（預設值）' : '（管理員自訂）');
 }
 
@@ -330,7 +331,7 @@ async function fetchAllLimits() {
   data.limits.forEach(l => {
     const tr = document.createElement('tr');
     const when = l.updated_at ? new Date(Number(l.updated_at) * 1000).toLocaleString() : '—';
-    tr.innerHTML = `<td>${l.user}</td><td>${l.cpu}</td><td>${l.memory_mb}</td><td>${when}</td><td>${l.updated_by || ''}</td>`;
+    tr.innerHTML = `<td>${l.user}</td><td>${l.cpu}</td><td>${l.memory_mb}</td><td>${l.disk_mb}</td><td>${when}</td><td>${l.updated_by || ''}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -339,21 +340,26 @@ document.getElementById('limit-save').addEventListener('click', async () => {
   const user = document.getElementById('limit-user').value.trim();
   const cpu = Number(document.getElementById('limit-cpu').value);
   const memory_mb = Number(document.getElementById('limit-memory').value);
+  const diskRaw = document.getElementById('limit-disk').value;
   const msg = document.getElementById('limits-msg');
   if (!user) { msg.textContent = '請輸入使用者帳號。'; return; }
+  const body = {cpu, memory_mb};
+  if (diskRaw !== '') body.disk_mb = Number(diskRaw);
   const resp = await fetch(PREFIX + 'api/resource-limits/' + encodeURIComponent(user), {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json', 'X-XSRFToken': getXsrf()},
-    body: JSON.stringify({cpu, memory_mb}),
+    body: JSON.stringify(body),
   });
   const data = await resp.json();
   if (!resp.ok) {
     msg.textContent = '失敗：' + (data.error || resp.status);
     return;
   }
-  msg.textContent = data.applied_live
-    ? `已儲存並立即套用到 ${user} 目前正在跑的容器。`
-    : `已儲存，${user} 目前沒有正在跑的容器，下次啟動時套用。`;
+  const cpuMemMsg = data.applied_live
+    ? `CPU/記憶體已儲存並立即套用到 ${user} 目前正在跑的容器。`
+    : `CPU/記憶體已儲存，${user} 目前沒有正在跑的容器，下次啟動時套用。`;
+  msg.textContent = cpuMemMsg + (diskRaw !== '' ? ` 磁碟配額已記錄，等主機端下次排程套用。` : '');
+  document.getElementById('limit-disk').value = '';
   fetchAllLimits();
 });
 
@@ -506,9 +512,18 @@ class ResourceLimitPatchApiHandler(BaseHandler):
             memory_mb = int(body["memory_mb"])
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             raise tornado.web.HTTPError(400, "cpu (float) and memory_mb (int) are required")
+        # disk_mb is optional: most callers are only changing cpu/memory, and
+        # unlike those, disk has no live-apply -- see the class docstring --
+        # so there is no urgency pushing every caller to always resend it.
+        # Missing means "leave disk_mb where it already effectively is".
+        current = await self.resource_limits.get(target_user)
+        try:
+            disk_mb = int(body["disk_mb"]) if "disk_mb" in body else current["disk_mb"]
+        except (TypeError, ValueError):
+            raise tornado.web.HTTPError(400, "disk_mb must be an integer")
         actor = self.current_user["name"]
         try:
-            limit = await self.resource_limits.set(target_user, cpu, memory_mb, actor=actor)
+            limit = await self.resource_limits.set(target_user, cpu, memory_mb, disk_mb, actor=actor)
         except ValueError as exc:
             self.set_status(400)
             self.set_header("Content-Type", "application/json")
@@ -517,10 +532,13 @@ class ResourceLimitPatchApiHandler(BaseHandler):
         applied_live = await self._apply_live(target_user, cpu, memory_mb)
         await self.queue.audit(
             actor, "set_resource_limit",
-            {"user": target_user, "cpu": cpu, "memory_mb": memory_mb, "applied_live": applied_live},
+            {"user": target_user, "cpu": cpu, "memory_mb": memory_mb, "disk_mb": disk_mb, "applied_live": applied_live},
         )
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({**limit, "applied_live": applied_live}))
+        # cpu/memory take effect per applied_live above; disk_mb is only
+        # ever recorded here -- ops/disk-quota/apply-disk-quotas.sh picks it
+        # up on its own schedule, there is no "live" for it to report.
+        self.finish(json.dumps({**limit, "applied_live": applied_live, "disk_quota_pending": True}))
 
     async def _apply_live(self, user, cpu, memory_mb):
         """Best-effort `docker update` on a container that's already
@@ -572,6 +590,7 @@ def main():
         queue.redis,
         default_cpu=float(os.environ.get("DEFAULT_CPU_CORES", DEFAULT_CPU_CORES)),
         default_memory_mb=int(os.environ.get("DEFAULT_MEMORY_MB", DEFAULT_MEMORY_MB)),
+        default_disk_mb=int(os.environ.get("DEFAULT_DISK_MB", DEFAULT_DISK_MB)),
     )
     app = make_app(queue, api_keys, resource_limits)
     app.listen(PORT)

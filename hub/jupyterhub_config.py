@@ -9,7 +9,7 @@ import redis.asyncio as redis_asyncio
 
 sys.path.insert(0, "/srv/jupyterhub")
 from api_keys import ApiKeyStore, AUTO_PROVISIONED_LABEL
-from resource_limits import ResourceLimitStore, DEFAULT_CPU_CORES, DEFAULT_MEMORY_MB
+from resource_limits import ResourceLimitStore, DEFAULT_CPU_CORES, DEFAULT_MEMORY_MB, DEFAULT_DISK_MB
 
 c = get_config()
 c.JupyterHub.bind_url = "http://0.0.0.0:8000"
@@ -160,6 +160,7 @@ _resource_limits = ResourceLimitStore(
     _api_key_redis,
     default_cpu=float(os.environ.get("DEFAULT_CPU_CORES", DEFAULT_CPU_CORES)),
     default_memory_mb=int(os.environ.get("DEFAULT_MEMORY_MB", DEFAULT_MEMORY_MB)),
+    default_disk_mb=int(os.environ.get("DEFAULT_DISK_MB", DEFAULT_DISK_MB)),
 )
 
 

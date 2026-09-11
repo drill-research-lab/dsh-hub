@@ -134,6 +134,42 @@ sudo ./ops/spark-lockdown/spark-lockdown-disable.sh  # 停用、恢復原狀
 
 Dispatcher 容器如果被重建（IP 可能換掉），要重新執行一次 `enable`。
 
+## 磁碟配額（XFS project quota）
+
+每個使用者的 home 資料存在具名 volume `dsh-demo-home-<帳號>`。跟 CPU/記憶體不同，磁碟配額沒有 Docker API 可以呼叫——XFS project quota 是主機檔案系統層級的機制，Panel（跑在 container 裡，沒有主機 root）沒辦法直接套用，只能把想要的值記進 Redis，實際套用要靠 [ops/disk-quota/apply-disk-quotas.sh](ops/disk-quota/apply-disk-quotas.sh) 這支腳本在主機上、以 root 身份定期執行，把每個使用者實際的配額收斂成 Redis 裡記錄的值（讀 Redis 用的是 Hub 容器裡已經裝好的 `common/resource_limits.py`，腳本本身只做 `docker volume inspect` 查路徑跟下 `xfs_quota` 指令）。
+
+**這支腳本一樣沒有在這個 repo 的開發環境裡測試過**（原因同上：這裡沒有真的 XFS 檔案系統），只驗證過它會呼叫到的 Redis 讀取邏輯本身是對的（真實管理員 session 呼叫 Panel 的 `PATCH .../resource-limits/<user>` 存入 `disk_mb`，再用同一段程式碼讀回來確認值正確）。
+
+```bash
+sudo ./ops/disk-quota/apply-disk-quotas.sh
+```
+
+建議用 systemd timer 或 cron 排程定期跑（例如每 5-10 分鐘一次），這樣管理員在 Panel 改了某人的磁碟配額後,不用手動介入就會在下一次排程生效。
+
+### 在 Proxmox VM 上從頭建立這個環境
+
+如果目標主機之前跑過別的東西（例如舊版 dsh），且沒有其他重要資料要保留，建議直接重灌乾淨，尤其是這次要順便建立磁碟配額需要的硬碟結構：
+
+1. **建立/重灌 VM**：一般的 Debian/Ubuntu LTS server 版本即可（跟這個 repo 的 Dockerfile 基底一致），避免用 Docker Desktop 之類的桌面版方案——一定要是原生跑 `dockerd` 的 Linux，不然會撞到跟這個開發環境一樣的問題（`iptables`/`xfs_quota` 都碰不到真正的容器網路/檔案系統）。
+2. **磁碟規劃**：額外掛一顆獨立虛擬硬碟（不要用系統碟），格式化成 XFS 並啟用 project quota：
+   ```bash
+   mkfs.xfs /dev/sdb
+   mkdir -p /var/lib/docker
+   echo '/dev/sdb /var/lib/docker xfs prjquota 0 2' >> /etc/fstab
+   mount -a
+   ```
+   （如果 `/var/lib/docker` 已經有資料，先搬走或用別的掛載點，並在 `/etc/docker/daemon.json` 設定 `"data-root"` 指過去。）
+3. **安裝 Docker Engine（原生版，不是 Desktop）**：照 [Docker 官方 apt repo 安裝指南](https://docs.docker.com/engine/install/) 裝 `docker-ce`/`docker-ce-cli`/`containerd.io`/`docker-compose-plugin`，裝完用 `systemctl status docker` 確認是本機的 systemd 服務、`ip link` 能看到 docker 的 bridge 介面——這兩點都是這次開發環境做不到、卡住 [ops/spark-lockdown/](ops/spark-lockdown/) 跟磁碟配額測試的原因，先確認過了才不會重蹈覆轍。
+4. **把這個 repo 拉到 VM 上**、複製 `.env.example` 成 `.env`、填入真實的 LDAP/Spark/PANEL_API_TOKEN 等值（`.env` 只留在 VM 上，不要進版控）。
+5. `docker compose up -d --build` 啟動整套堆疊。
+6. 驗證前面兩個「寫了但沒測過」的項目：
+   ```bash
+   sudo ./ops/spark-lockdown/spark-lockdown-enable.sh
+   sudo ./ops/spark-lockdown/spark-lockdown-status.sh
+   sudo ./ops/disk-quota/apply-disk-quotas.sh
+   ```
+   然後照各自檔案開頭註解裡寫的方式驗證（前者：使用者 container 打不到 Spark、Dispatcher 打得到；後者：`xfs_quota -x -c 'report -p' /var/lib/docker` 能看到對應使用者的配額生效）。
+
 ## 驗證
 
 1. 正確 LLDAP 帳密可登入並進入個人頁面。
