@@ -146,6 +146,21 @@ sudo ./ops/disk-quota/apply-disk-quotas.sh
 
 建議用 systemd timer 或 cron 排程定期跑（例如每 5-10 分鐘一次），這樣管理員在 Panel 改了某人的磁碟配額後,不用手動介入就會在下一次排程生效。
 
+### VM 規格建議（依實際硬體算過一次，不是憑空抓的數字）
+
+物理機：Proxmox host「hellman」，Intel i7-8700（6 實體核心/12 執行緒，Proxmox 顯示成 12 CPUs）、62.67 GB RAM、獨立的 2.2TB LVM-Thin 存儲池（跟系統碟分開）。機器上還跑著 WireGuard、一台 SeedLab VM、一個 GitLab runner，這些現有服務目前實測只吃 ~12GB RAM、CPU 幾乎 0%，但 GitLab runner 跑 build 時可能瞬間尖峰，所以不能把資源全分給 dsh-hub。
+
+預期負載：平常尖峰約 10 人同時在線，最多抓 15 人。
+
+| 項目 | 建議值 | 理由 |
+|---|---|---|
+| vCPU | 8 | 12 個邏輯執行緒留 4 個給 Proxmox 本身 + 其他既有服務的尖峰緩衝。CPU 是軟上限（`cpu_limit`/CFS quota），可以超額分配——這個工作負載是等 Spark 回應為主的爆發性用量，不是持續燒 CPU，所以就算 15 人同時把 `DEFAULT_CPU_CORES=2.0` 的上限都設成有效（理論需要 30 核），也只會變慢、不會失敗。 |
+| RAM | 40GB | 62.67GB 扣掉現有服務的 12GB 基準用量、再留一段給 CI runner 尖峰跟 Proxmox 本身。記憶體不能超額分配（會觸發 OOM，比 CPU 變慢嚴重），所以這裡算得比 CPU 保守。 |
+| 磁碟 | 250-300GB | 放在那顆 2.2TB 的 LVM-Thin pool 上，空間非常寬裕，不是限制因素。算法：15 人 × 預設 `DEFAULT_DISK_MB`（10GB/人）+ OS/image 的緩衝。 |
+| VM 內 swap | 8-16GB | RAM 的安全網：`.env` 的 `DEFAULT_MEMORY_MB` 已經調成 3072（見下），但 15 人同時用滿上限理論上還是要 45GB、超過 40GB 的 VM 配額；真實用量很少會貼著上限，但萬一撞到，寧可靠 swap 拖慢也不要讓 OOM killer 砍 process。 |
+
+`DEFAULT_MEMORY_MB` 從原本的 4096 調降到 **3072**（`.env`/`.env.example` 都已改），對應上面 40GB VM 配額的算法：10 人同時用滿 = 30GB（舒服），15 人同時用滿 = 45GB（最壞情況會壓線，但機率低，加上 swap 保底）。`DEFAULT_CPU_CORES` 維持 2.0 不用動。
+
 ### 在 Proxmox VM 上從頭建立這個環境
 
 如果目標主機之前跑過別的東西（例如舊版 dsh），且沒有其他重要資料要保留，建議直接重灌乾淨，尤其是這次要順便建立磁碟配額需要的硬碟結構：
