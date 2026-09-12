@@ -11,6 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Official GitHub release and npm package verified on 2026-09-11.
 ARG DSH_VERSION=0.1.5-rc.2
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" && npm cache clean --force
+# dsh ships its browser UI's Simplified Chinese only (LOCALE_IDS = ["zh",
+# "en"], no zh-TW variant) -- rewrite every bundled zh string/regex/template
+# literal to Traditional (Taiwan wording) via OpenCC, in place, then discard
+# the conversion tooling so it never ships in the final image.
+COPY ops/i18n/patch-zh-locale.mjs /tmp/i18n-tools/patch-zh-locale.mjs
+RUN cd /tmp/i18n-tools \
+    && npm install --no-save opencc-js acorn \
+    && node patch-zh-locale.mjs "$(npm root -g)" \
+    && cd / && rm -rf /tmp/i18n-tools
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     'jupyter-server>=2,<3' 'jupyter-server-proxy==4.5.0' \

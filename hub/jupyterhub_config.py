@@ -18,6 +18,7 @@ c.JupyterHub.hub_connect_ip = "hub"
 c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
 c.JupyterHub.cookie_secret_file = "/data/jupyterhub_ldap_cookie_secret"
 c.JupyterHub.template_paths = ["/srv/jupyterhub/templates"]
+c.JupyterHub.logo_file = "/srv/jupyterhub/static/logo.png"
 # LDAP is required; there is no fallback to test authentication.
 def required(name):
     value = os.environ.get(name, "").strip()

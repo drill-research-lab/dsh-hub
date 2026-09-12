@@ -11,5 +11,7 @@
 !dispatcher/**
 !panel/
 !panel/**
+!ops/i18n/
+!ops/i18n/**
 **/__pycache__/
 **/*.pyc

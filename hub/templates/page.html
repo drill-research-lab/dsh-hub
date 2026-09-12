@@ -6,15 +6,15 @@
 {% endblock meta %}
 {% block logo %}
   <span id="jupyterhub-logo" class="navbar-brand">
-    <a href="{{ logo_url or base_url }}" class="islab-brand" title="應用密碼與資訊安全實驗室">
-      <svg width="22" height="22" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-        <path d="M4 4 L4 22 M4 4 L14 4 M4 13 L11 13" stroke="#5FD3A6" stroke-width="2.2"></path>
-        <path d="M22 22 L22 4 M22 22 L12 22" stroke="#5B6470" stroke-width="2.2"></path>
-      </svg>
+    <a href="{{ base_url }}" class="islab-brand" title="應用密碼與資訊安全實驗室">
+      <img src="{{ base_url }}logo" alt="國立臺灣師範大學" class="islab-logo-mark">
       <span class="islab-wordmark">islab</span>
     </a>
   </span>
 {% endblock logo %}
+{% block favicon %}
+  <link rel="icon" href="{{ base_url }}logo" type="image/png">
+{% endblock favicon %}
 {% block stylesheet %}
   {{ super() }}
   <link rel="stylesheet"
@@ -53,6 +53,8 @@
     .navbar #login_widget span { color: var(--islab-text-muted); }
 
     .islab-brand { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .islab-logo-mark { height: 26px; width: auto; display: block; }
+    .islab-logo-mark-lg { height: 56px; width: auto; display: block; }
     .islab-wordmark { font-weight: 700; font-size: 17px; color: #F1F4F7; }
 
     .btn-jupyter, .btn-primary {
