@@ -1,10 +1,10 @@
 """Unit test for hub/idle_culler.py's pure timestamp-parsing helper.
 
-Skipped automatically if the `redis` package isn't importable -- idle_culler
-imports common/dispatch_queue.py, which needs redis.asyncio even though this
-particular helper doesn't touch Redis at all. This dev sandbox's .venv has
-no pip, so it always skips here; run it in an environment with
-`pip install redis` for real coverage.
+Skipped automatically if `redis` or `requests` isn't importable -- idle_culler
+imports both (dispatch_queue.py needs redis.asyncio, idle_culler.py itself
+needs requests) even though this particular helper touches neither. This dev
+sandbox's .venv has no pip, so it always skips here; run it in an environment
+with `pip install redis requests` for real coverage.
 """
 import os
 from pathlib import Path
@@ -31,7 +31,7 @@ except ImportError:
     IDLE_CULLER_IMPORTABLE = False
 
 
-@unittest.skipUnless(IDLE_CULLER_IMPORTABLE, 'redis package not available')
+@unittest.skipUnless(IDLE_CULLER_IMPORTABLE, 'redis/requests package not available')
 class ParseLastActivityTest(unittest.TestCase):
     def test_none_returns_none(self):
         self.assertIsNone(_parse_last_activity(None))
