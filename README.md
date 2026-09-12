@@ -57,9 +57,15 @@ docker compose up -d hub redis dispatcher panel
 docker compose up -d hub
 ```
 
-**2. 發一張新主機名的憑證**：用你們既有的內部 CA 工具/腳本，幫想用的網域（例如 `dsh.islab.xxx`）發一張憑證，放到 Caddy 那台機器上。
+**2. 發一張新主機名的憑證**：[ops/reverse-proxy/issue-cert.sh](ops/reverse-proxy/issue-cert.sh) 幫你把「用內部 CA 簽一張 Caddy 要的 cert+key」這件事包成一支腳本。在你放 CA 的 `ca.crt`/`ca.key` 那個目錄下執行（檔名不同的話用 `CA_CERT`/`CA_KEY` 覆寫）：
 
-**3. 在 Caddy 那台機器的 Caddyfile 加一段**（`reverse_proxy` 目標填這台 dsh-hub VM 的 LAN IP，不是 127.0.0.1）：
+```bash
+./ops/reverse-proxy/issue-cert.sh dsh.islab.xxx
+```
+
+會產生 `dsh.islab.xxx.crt`/`dsh.islab.xxx.key`，並自動驗證簽出來的憑證對得起這張 CA、`subjectAltName` 有正確帶到（現代瀏覽器會檢查 SAN，只有 CN 沒有 SAN 會被拒絕）。這支腳本已經用一組假的測試 CA 實際跑過一次確認邏輯正確，把輸出的兩個檔案搬到 Caddy 那台機器即可，不用另外轉檔。
+
+**3. 在 Caddy 那台機器的 Caddyfile 加一段**：範例在 [ops/reverse-proxy/Caddyfile.snippet](ops/reverse-proxy/Caddyfile.snippet)，把主機名、憑證路徑、`reverse_proxy` 目標（**這台 dsh-hub VM 的 LAN IP**，不是 127.0.0.1）換成實際值：
 
 ```
 dsh.islab.xxx {
@@ -68,7 +74,13 @@ dsh.islab.xxx {
 }
 ```
 
-**4. 在你們自架的 AdGuard 上加一筆內部 DNS 紀錄**：`dsh.islab.xxx` → Caddy 那台機器的 IP（不是直接指到 dsh-hub VM，流程是「使用者 → DNS 解析到 Caddy → Caddy 反代到 dsh-hub VM:9000」）。
+**4. 在你們自架的 AdGuard 上加一筆內部 DNS 紀錄**：`dsh.islab.xxx` → **Caddy 那台機器的 IP**（不是直接指到 dsh-hub VM，流程是「使用者 → DNS 解析到 Caddy → Caddy 反代到 dsh-hub VM:9000」）。[ops/reverse-proxy/adguard-add-dns-rewrite.sh](ops/reverse-proxy/adguard-add-dns-rewrite.sh) 包了 AdGuard Home 的 REST API（`/control/login` + `/control/rewrite/add`），這支**沒有真的 AdGuard 實例可以測，是照官方 API 文件寫的**，跑完用 [adguard-list-dns-rewrites.sh](ops/reverse-proxy/adguard-list-dns-rewrites.sh) 確認有真的加進去：
+
+```bash
+ADGUARD_URL=http://<你的 AdGuard 位址>:3000 \
+ADGUARD_USER=<帳號> ADGUARD_PASS=<密碼> \
+./ops/reverse-proxy/adguard-add-dns-rewrite.sh dsh.islab.xxx <Caddy 那台機器的 IP>
+```
 
 **上線後留意**：如果登入後出現重導向迴圈、或頁面裡的連結變成 `http://` 而不是 `https://`，通常是因為 JupyterHub 不知道自己被包在 HTTPS 反向代理後面——Caddy 的 `reverse_proxy` 預設就會加上 `X-Forwarded-Proto`/`X-Forwarded-For` 標頭，一般情況下不用額外設定；如果真的遇到這個問題再回來處理，不要沒遇到就先加。
 

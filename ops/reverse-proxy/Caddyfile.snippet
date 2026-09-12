@@ -1,0 +1,15 @@
+# Append this block to the shared Caddy instance's existing Caddyfile
+# (the one already fronting other lab services). Replace the hostname,
+# cert/key paths, and reverse_proxy target with your real values.
+#
+# - tls points at the two files issue-cert.sh produced (copy them here
+#   first, wherever your Caddy config expects certs to live).
+# - reverse_proxy targets the dsh-hub VM's LAN IP on port 9000 -- the host
+#   port compose.yaml maps to Hub's 8000, bound to HUB_BIND_ADDRESS (see
+#   .env). Not 127.0.0.1: that's loopback on the dsh-hub VM, unreachable
+#   from this Caddy machine.
+
+dsh.islab.xxx {
+    tls /path/to/dsh.islab.xxx.crt /path/to/dsh.islab.xxx.key
+    reverse_proxy 192.168.101.x:9000
+}
