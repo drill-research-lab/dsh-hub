@@ -217,3 +217,35 @@ c.JupyterHub.load_roles = [
         "scopes": ["self", "access:services!service=panel"],
     }
 ]
+
+# Auto-stop servers idle long enough that nobody's actually using them --
+# without this, a container someone forgot to stop just runs forever (see
+# STATUS.md). idle_culler.py cross-checks the Dispatcher's own queue state
+# before stopping anyone, so a server that's mid-generation (no new proxied
+# HTTP traffic, but a real request in flight) is never killed just because
+# last_activity looks stale. Appended (not assigned) to the lists above --
+# both are reassigned wholesale by the panel-service/user-role block just
+# above, so a plain `= [...]` here would silently wipe those out instead of
+# adding to them.
+c.JupyterHub.services.append(
+    {
+        "name": "idle-culler",
+        "command": ["python3", "/srv/jupyterhub/idle_culler.py"],
+        # A Service subprocess gets a curated env from JupyterHub (mostly
+        # JUPYTERHUB_* vars), not a copy of the Hub's own os.environ -- these
+        # have to be forwarded explicitly or idle_culler.py silently falls
+        # back to its own hardcoded defaults regardless of what's in .env.
+        "environment": {
+            "REDIS_URL": os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+            "IDLE_CULL_TIMEOUT_MINUTES": os.environ.get("IDLE_CULL_TIMEOUT_MINUTES", "120"),
+            "IDLE_CULL_CHECK_INTERVAL_MINUTES": os.environ.get("IDLE_CULL_CHECK_INTERVAL_MINUTES", "15"),
+        },
+    }
+)
+c.JupyterHub.load_roles.append(
+    {
+        "name": "idle-culler",
+        "scopes": ["list:users", "servers"],
+        "services": ["idle-culler"],
+    }
+)

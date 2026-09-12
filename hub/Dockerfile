@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
 COPY requirements.txt /tmp/requirements.txt
 COPY hub/requirements.txt /tmp/ldap-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt -r /tmp/ldap-requirements.txt
-COPY common/api_keys.py common/resource_limits.py /srv/jupyterhub/
+COPY common/api_keys.py common/resource_limits.py common/dispatch_queue.py /srv/jupyterhub/
 COPY hub /srv/jupyterhub
 WORKDIR /data
 EXPOSE 8000
