@@ -2,7 +2,7 @@
 
 這份報告記錄目前 `dsh-hub`（GitHub：`drill-research-lab/dsh-hub`，本機路徑仍是 `new-DSH`）相對於實驗室內網系統規劃文件的完成度，哪些項目已經**用真實環境驗證過**、哪些**因為環境限制暫時擱置**、哪些**還沒開始**。之後每完成一段新工作，會回來更新這份報告，不會另外散落成多份文件。
 
-最後更新：2026-09-12（這個 repo 正式建到 GitHub、接上 CI（單元測試 + 四個 Dockerfile build 檢查，都在真正的 GitHub Actions 上跑過綠燈）；磁碟配額補完 `disk_mb` 這個維度，Redis/Panel API 那半已實測，[ops/disk-quota/apply-disk-quotas.sh](ops/disk-quota/apply-disk-quotas.sh) 的 `xfs_quota` 那半待正式 Proxmox VM 驗證；第三節「CPU/記憶體限制」完整實作並實測完成——新容器建立時套用預設值、管理員可對已在跑的容器即時 `docker update`；排隊位置提示列的視覺樣式改用從 dsh 實際頁面（真實瀏覽器 `getComputedStyle`）量到的色票／字型／圓角重做，取代原本自己瞎猜的等寬字＋青綠色方案；之前已完成：dsh 網頁內嵌排隊位置提示列；介面重新設計：Hub 全站 + Panel 換成 islab／應用密碼與資訊安全實驗室品牌，不再出現 JupyterHub 字樣；第六節：dsh 預設 provider/模型接好，過程中修好五個 bug——帳號格式檢查、Panel session 隨重啟失效、Dispatcher 不支援 streaming、API key 核發邏輯判斷依據錯誤、以及兩次手動修 Redis 資料造成的意外副作用）。
+最後更新：2026-09-12（**正式部署到 Proxmox VM 完成**：`ops/spark-lockdown/` 三支腳本、`ops/disk-quota/apply-disk-quotas.sh` 都在真實環境跑過，前者完整驗證通過，後者只差等第一個真人使用者出現才能補完最後一小段；部署過程中抓到並修好一個真實 bug（兩支腳本猜容器名稱字首猜錯，改用 compose label 查找）；這個 repo 正式建到 GitHub、接上 CI（單元測試 + 四個 Dockerfile build 檢查，都在真正的 GitHub Actions 上跑過綠燈）；磁碟配額補完 `disk_mb` 這個維度；第三節「CPU/記憶體限制」完整實作並實測完成——新容器建立時套用預設值、管理員可對已在跑的容器即時 `docker update`；排隊位置提示列的視覺樣式改用從 dsh 實際頁面（真實瀏覽器 `getComputedStyle`）量到的色票／字型／圓角重做，取代原本自己瞎猜的等寬字＋青綠色方案；之前已完成：dsh 網頁內嵌排隊位置提示列；介面重新設計：Hub 全站 + Panel 換成 islab／應用密碼與資訊安全實驗室品牌，不再出現 JupyterHub 字樣；第六節：dsh 預設 provider/模型接好，過程中修好五個 bug——帳號格式檢查、Panel session 隨重啟失效、Dispatcher 不支援 streaming、API key 核發邏輯判斷依據錯誤、以及兩次手動修 Redis 資料造成的意外副作用）。
 
 ## 這次測試環境的重要背景
 
@@ -95,7 +95,9 @@
 3. 超出範圍（1024~102400 MB）正確擋 400。
 4. `apply-disk-quotas.sh` 唯一「能在這裡測」的部分——它讀 Redis 用的那段 Python（`docker exec` 進 Hub 容器、`ResourceLimitStore.get(user)['disk_mb']`）——直接照腳本裡一模一樣的程式碼跑過一次，確認能正確讀回剛才存的 20480。
 
-**沒測過的部分**：腳本裡實際下 `xfs_quota -x -c 'project -s -p ...'`/`limit -p bhard=...` 那幾行，跟 [ops/spark-lockdown/](ops/spark-lockdown/) 同一個理由——這個 sandbox 沒有真正的 XFS 檔案系統可以測（Docker Desktop 的虛擬磁碟不是），只做過 `bash -n` 語法檢查。跟 Spark 防火牆腳本一樣，等正式 Proxmox VM 建好、掛上真的 XFS + prjquota 硬碟之後才能驗證。README 新增了完整的 Proxmox VM 從頭建置步驟（含硬碟規劃、原生 Docker 安裝、兩支未測腳本的驗證方式）。
+**後續：正式 Proxmox VM 建好後，已經進一步驗證過（不再是純語法檢查）**：真的把資料碟格式化成 XFS、掛上 `prjquota`（`df -hT /var/lib/docker` 確認是 `xfs`），在上面跑 `sudo ./apply-disk-quotas.sh`，乾淨執行完畢、印出 `Done: 0 applied, 0 skipped.`，沒有任何錯誤——證明腳本裡查容器、進 Hub 容器讀 Redis 那整段管線（`docker ps` label 篩選、`docker exec`、`ResourceLimitStore.get()`）在真實環境下是通的。
+
+**還差最後一小塊**：因為驗證當下還沒有真人登入、沒有任何 `dsh-demo-home-<帳號>` volume，迴圈本體實際下 `xfs_quota -x -c 'project ...'`/`limit -p bhard=...` 那兩行**一次都還沒真的執行過**（沒有東西可以疊代）。等有第一個真人登入、產生第一個使用者 volume 之後，需要再跑一次這支腳本、並用 `sudo xfs_quota -x -c 'report -p' /var/lib/docker` 確認配額真的套用上去，才算完全補完。同一輪也把[ops/spark-lockdown/](ops/spark-lockdown/) 三支腳本裡「猜容器名稱字首」的 bug 一起修掉了（原本寫死 `new-dsh-` 這個本機開發環境的字首，真實部署目錄叫 `dsh-hub`、容器名稱對不起來，會直接抓不到），改成用 `com.docker.compose.service` label 查找，兩支腳本都同步套用同一個修法，且都已經驗證過。
 | 統一開關 API（`PATCH /users/{id}/resource-limits`） | ✅ 已完成、已實測 | 見下方完整說明。 |
 
 ### CPU / 記憶體限制：完整實作與實測
@@ -177,7 +179,14 @@
 
 **原本以為可以在這裡直接寫直接測，後來查證發現也不行**：這個判斷斷再更正一次——查了才發現這個 sandbox 其實是 Docker Desktop 的 WSL2 整合環境，這個 shell 裡沒有 root（`sudo` 需要密碼、進不去），而且真正的 `dockerd`、真正的 `dsh-demo` bridge 網路，其實跑在 Docker Desktop 自己另一個獨立的 VM 裡（`docker context ls` 顯示有一個透過 Windows named pipe 連的 `desktop-linux` context；這個 WSL distro 本身找不到 `dockerd` 行程、也看不到 `dsh-demo` 的 bridge 網路介面）——代表就算有 root，在這裡下的 `iptables` 規則也不會作用在真正的容器流量上，兩者根本不在同一個網路 namespace。這點我一開始沒查證就講「這裡能測」，是錯的，後來自己發現並更正。
 
-**目前的產出**：[ops/spark-lockdown/](ops/spark-lockdown/) 三支腳本（`spark-lockdown-enable.sh` / `disable.sh` / `status.sh`），邏輯是查文件確認過的標準做法——用 `DOCKER-USER` chain（Docker 官方文件建議的自訂規則掛載點，不會被 Docker 自己動態管理的規則洗掉）：先動態查出 Dispatcher 容器在 `dsh-demo` 網路上目前的 IP，插入一條「只允許這個 IP 打 Spark」的 ACCEPT 規則，再插入一條「整個 `dsh-demo` 子網段打 Spark 一律 DROP」的規則（順序很重要，ACCEPT 必須排在 DROP 前面）。`enable` 是冪等的（每次先呼叫 `disable --quiet` 清掉舊規則再重插，處理 Dispatcher 容器重建後 IP 換掉的情況）。**這三支腳本只做過語法檢查（`bash -n`），沒有真的執行測試過**——跟磁碟配額（第三節）同一個等級的「寫了但沒測」，需要在真正跑 `dockerd` 本身、且有 root 權限的機器上（例如文件設想的正式 Proxmox VM）驗證。
+**做法**：[ops/spark-lockdown/](ops/spark-lockdown/) 三支腳本（`spark-lockdown-enable.sh` / `disable.sh` / `status.sh`），用 `DOCKER-USER` chain（Docker 官方文件建議的自訂規則掛載點，不會被 Docker 自己動態管理的規則洗掉）：先動態查出 Dispatcher 容器在 `dsh-demo` 網路上目前的 IP，插入一條「只允許這個 IP 打 Spark」的 ACCEPT 規則，再插入一條「整個 `dsh-demo` 子網段打 Spark 一律 DROP」的規則（順序很重要，ACCEPT 必須排在 DROP 前面）。`enable` 是冪等的（每次先呼叫 `disable --quiet` 清掉舊規則再重插，處理 Dispatcher 容器重建後 IP 換掉的情況）。
+
+**✅ 已在正式 Proxmox VM 上用真實環境完整驗證過**（不再是「寫了沒測」）：
+1. `sudo ./spark-lockdown-enable.sh` 在真正的原生 `dockerd` + root 權限下執行成功，`status.sh` 顯示規則正確（`ACCEPT` 排在 `DROP` 前面，只放行 Dispatcher 當時的 IP）。
+2. 從一個丟棄式測試 container（跟使用者 container 同一個 `dsh-demo` 網路）直接打 Spark：`curl: (28) Connection timed out`——確認真的被擋。
+3. 從 Dispatcher 容器本身打 Spark：拿到真實的 `200`——確認沒有誤傷合法流量。
+4. 整套堆疊重建（`docker compose up -d --build`）後 Dispatcher 換了新 IP，重跑一次 `enable.sh`：正確清掉舊規則、插入新 IP 的規則（`status.sh` 顯示剛好 2 條，不是疊加成 4 條），證明冪等重跑邏輯是對的。
+5. 過程中抓到並修好一個真實 bug：容器名稱解析邏輯原本猜的字首（`new-dsh-`，來自我開發時的本機環境）在真實部署（目錄叫 `dsh-hub`，容器變成 `dsh-hub-dispatcher-1`）完全兜不起來，會直接抓不到容器。改成用 Docker Compose 自己打的 `com.docker.compose.service` label 查找，不管專案叫什麼名字都能用——已經在本機不同命名的專案上驗證過這個查找邏輯本身是對的，也在真實部署上驗證過修好之後確實抓對。
 
 ### dsh 預設 provider + 預設模型：完整實作與實測
 
@@ -319,21 +328,23 @@ messages: [{role: "developer", ...}, {role: "user", content: "Say OK."}]
 
 ## 下一步建議
 
-目前真正還沒完成的項目，按有沒有辦法在這個環境實測分兩類：
+**這個 repo 已經正式部署到正式的 Proxmox VM 上了**（`hellman` 這台主機，8 vCPU / 40GB RAM / 300GB XFS+prjquota 資料碟，規格怎麼算的見 README「VM 規格建議」），不再只是本機 sandbox 的紙上驗證。目前真正還沒完成的項目：
 
-**這個環境能做的都做完了：**
-1. 「三、CPU/記憶體限制」——已完成並實測（見上）。
-2. 排隊提示列——後端邏輯、DOM 注入、視覺樣式（已改用 dsh 真實色票）三塊都完成，你已確認外觀 OK。
+**已完成、全部在真實 Proxmox VM 上驗證過：**
+1. 「三、CPU/記憶體限制」——完成並實測。
+2. 排隊提示列——後端邏輯、DOM 注入、視覺樣式三塊都完成並確認過外觀。
+3. 「六、防止繞過排隊系統」——[ops/spark-lockdown/](ops/spark-lockdown/) 在正式 VM 上真實跑過：Dispatcher 打 Spark 拿到 200，丟棄式測試 container 打 Spark 逾時失敗，整套堆疊重建後重跑 `enable.sh` 也正確處理了 Dispatcher 換 IP 的情況。過程中還抓到並修好一個真實 bug（容器名稱解析邏輯猜錯字首，改用 compose label 查找）。
+4. 「三、磁碟配額」的 Redis/容器/腳本管線——在真的 XFS + prjquota 磁碟上跑過 `apply-disk-quotas.sh`，乾淨執行無誤。
 
-**寫完了、Redis/API 那半也測過了，只差 `xfs_quota`/`iptables` 那半需要正式 Proxmox VM 才能驗證：**
-3. 「六、防止繞過排隊系統」剩下的一半——[ops/spark-lockdown/](ops/spark-lockdown/) 三支腳本邏輯完整（`iptables` 的 `DOCKER-USER` chain，只放行 Dispatcher 打 Spark），只做過語法檢查。
-4. 「三、磁碟配額」——[ops/disk-quota/apply-disk-quotas.sh](ops/disk-quota/apply-disk-quotas.sh) 已寫完，它會用到的 Redis 讀取邏輯已經真實測過（透過 Panel PATCH 設值、確認腳本要跑的那段程式碼讀得回來），只有實際下 `xfs_quota` 指令那幾行沒測過。
+**還差最後一小段、等第一個真人登入後就能補完：**
+5. 磁碟配額腳本裡實際下 `xfs_quota` 指令那幾行，因為驗證當下還沒有使用者 volume 存在，一次都還沒真的執行過（見上方「三、Container 資源限制」章節的說明）。等有人第一次登入、產生第一個 `dsh-demo-home-<帳號>` volume 之後，重跑一次 `apply-disk-quotas.sh`、用 `xfs_quota -x -c 'report -p' /var/lib/docker` 確認配額真的生效，這項就算完全收尾。
 
-兩者卡住的原因一樣：這個 sandbox 是 Docker Desktop 的 WSL2 整合環境，真正的 `dockerd`/容器網路跑在別的 VM 裡，這裡沒有 root、也沒有真正的 XFS 檔案系統。README 新增了完整的 Proxmox VM 從頭建置步驟（硬碟規劃、原生 Docker 安裝、這兩支腳本的驗證方式），等正式 VM 建好就能直接照著做。
+**仍然卡在環境限制、無法在這台 VM 上驗證：**
+6. 磁碟配額本身沒有問題，但 Proxmox VM 的虛擬磁碟終究不是文件原始設想的「獨立實體硬碟」，如果日後正式上線發現效能瓶頸，可能要重新評估；目前判斷不影響功能正確性，只是效能上的理論差異，先不列為待辦。
 
 **已完成、僅剩你確認/決定的：**
-5. Panel/Hub 介面重新設計——已完成全站（Hub 全頁 + Panel），品牌換成 islab／應用密碼與資訊安全實驗室；殘留幾處刻意不動的技術性文字/無障礙標籤（原因見上方「介面重新設計」章節），除非你覺得需要更深入處理，否則這項算完成。
-6. 你自己的 container 目前還沒重建，所以還沒套用 dsh 預設 provider（第六節）——`/home/demo` 資料會透過具名 volume 保留，要不要現在重建是你的選擇。
+7. Panel/Hub 介面重新設計——已完成全站，品牌換成 islab／應用密碼與資訊安全實驗室；殘留幾處刻意不動的技術性文字/無障礙標籤（原因見上方「介面重新設計」章節），除非你覺得需要更深入處理，否則這項算完成。
+8. 舊的本機測試環境（這個 sandbox）跟正式 VM 是兩份獨立的部署，本機那邊要不要繼續留著純粹看你需不需要，不影響正式環境。
 
 **待查、非 bug 的觀察**：Panel 疑似每次輪詢佇列都重新走一次完整 OAuth handshake（見上方「待查、未確認的觀察」），還沒深入查，如果你操作時覺得卡頓再跟我說。
 

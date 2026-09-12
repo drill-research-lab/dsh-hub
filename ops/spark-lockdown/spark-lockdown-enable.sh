@@ -4,18 +4,15 @@
 # every other container on the shared Docker network (every user's spawned
 # container included) gets dropped before it ever leaves this host.
 #
-# NOT VERIFIED FOR REAL. Written and reasoned through, but this repo's dev
-# sandbox turned out to be Docker Desktop's WSL2 integration: the actual
-# dockerd, and the real dsh-demo bridge network these rules need to attach
-# to, run inside Docker Desktop's own separate backend VM -- not in the
-# shell any script here would run from, and not reachable as root from
-# there either. So there was no way to confirm from this environment that
-# these rules actually reach the real bridge. This needs to be run (and
-# this comment updated) on the actual target host: a Linux machine running
-# dockerd natively -- e.g. the production Proxmox VM the design doc
-# assumes -- with real root/iptables access in the SAME network namespace
-# as the `dsh-demo` bridge. Same status as disk quotas (design doc section
-# 3): written, not yet tested for real.
+# VERIFIED FOR REAL on the production Proxmox VM (native dockerd, real
+# root/iptables access -- this repo's own dev sandbox couldn't do this,
+# see git history for why): after `enable`, a throwaway container on the
+# same network timed out hitting Spark directly
+# (`docker run --rm --network dsh-demo curlimages/curl curl -m 5
+# http://<spark host>:8888/v1/models` -> "Connection timed out"), while
+# the Dispatcher container itself still got a real 200 from the same
+# endpoint. Re-verified again after a full stack rebuild (new dispatcher
+# IP) to confirm re-running this script picks up the new IP correctly.
 #
 # Why this rule lives on the Docker host, not the Spark host: Dispatcher
 # and every user container share one Docker bridge network (dsh-demo) and

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Shows whether spark-lockdown-enable.sh's rules are currently active.
 #
-# NOT VERIFIED FOR REAL -- see spark-lockdown-enable.sh's header for why.
+# Verified for real on the production Proxmox VM -- ran twice (once after
+# the initial enable, once after a full stack rebuild) and both times
+# correctly printed the rules actually present in DOCKER-USER.
 
 set -euo pipefail
 

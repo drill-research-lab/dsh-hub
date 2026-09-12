@@ -124,7 +124,7 @@ DISPATCHER_CONCURRENCY=1
 
 [ops/spark-lockdown/](ops/spark-lockdown/) 有三支腳本處理這個問題：`spark-lockdown-enable.sh`、`spark-lockdown-disable.sh`、`spark-lockdown-status.sh`，邏輯是在 `DOCKER-USER` iptables chain（Docker 官方文件建議的自訂規則掛載點，不會被 Docker 自己的動態規則清掉）插入規則：只放行 Dispatcher 容器目前的 IP 打 Spark，其餘整個 `dsh-demo` 子網段一律擋掉。
 
-**這三支腳本沒有在這個 repo 的開發環境裡實際測試過**——這裡是 Docker Desktop 的 WSL2 整合，真正的 `dockerd` 和 `dsh-demo` bridge 網路其實跑在 Docker Desktop 自己另一個獨立的 VM 裡，這個殼層既沒有 root、也碰不到那個網路 namespace，沒辦法驗證規則是否真的生效。需要在真正跑 `dockerd` 本身、且有 root 權限的 Linux 主機上（例如正式的 Proxmox VM）執行並驗證，執行前請先讀過腳本開頭的註解。
+**已經在正式 Proxmox VM 上真實驗證過**：`enable.sh` 執行後，丟棄式測試 container 直接打 Spark 逾時失敗，Dispatcher 自己打 Spark 拿到正常的 200；整套堆疊重建、Dispatcher 換了新 IP 之後重跑一次 `enable.sh`，也正確清掉舊規則、只留新 IP 的規則。執行前建議先讀過腳本開頭的註解。
 
 ```bash
 sudo ./ops/spark-lockdown/spark-lockdown-enable.sh   # 啟用：只放行 Dispatcher
@@ -138,7 +138,7 @@ Dispatcher 容器如果被重建（IP 可能換掉），要重新執行一次 `e
 
 每個使用者的 home 資料存在具名 volume `dsh-demo-home-<帳號>`。跟 CPU/記憶體不同，磁碟配額沒有 Docker API 可以呼叫——XFS project quota 是主機檔案系統層級的機制，Panel（跑在 container 裡，沒有主機 root）沒辦法直接套用，只能把想要的值記進 Redis，實際套用要靠 [ops/disk-quota/apply-disk-quotas.sh](ops/disk-quota/apply-disk-quotas.sh) 這支腳本在主機上、以 root 身份定期執行，把每個使用者實際的配額收斂成 Redis 裡記錄的值（讀 Redis 用的是 Hub 容器裡已經裝好的 `common/resource_limits.py`，腳本本身只做 `docker volume inspect` 查路徑跟下 `xfs_quota` 指令）。
 
-**這支腳本一樣沒有在這個 repo 的開發環境裡測試過**（原因同上：這裡沒有真的 XFS 檔案系統），只驗證過它會呼叫到的 Redis 讀取邏輯本身是對的（真實管理員 session 呼叫 Panel 的 `PATCH .../resource-limits/<user>` 存入 `disk_mb`，再用同一段程式碼讀回來確認值正確）。
+**已經在正式 Proxmox VM 的真實 XFS + prjquota 磁碟上跑過**，乾淨執行無誤。因為驗證當下還沒有真人登入、沒有任何使用者 volume，迴圈本體實際下 `xfs_quota` 指令那幾行還沒有真的被執行過一次——等第一個使用者登入產生第一個 `dsh-demo-home-<帳號>` volume 之後，需要再跑一次並用 `xfs_quota -x -c 'report -p' /var/lib/docker` 確認配額真的套用上去。
 
 ```bash
 sudo ./ops/disk-quota/apply-disk-quotas.sh

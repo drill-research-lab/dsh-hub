@@ -14,12 +14,16 @@
 # Redis each time it runs. A user who just got a new limit from Panel sees
 # it "pending until the next reconciler run" rather than instantly.
 #
-# NOT VERIFIED FOR REAL, for the same reason as ops/spark-lockdown/: this
-# repo's dev sandbox is Docker Desktop's WSL2 integration, which has no
-# real XFS filesystem to test xfs_quota against (its virtual disk isn't
-# one). Needs to be run and verified on the actual target host once it has
-# a real XFS-with-prjquota mount -- see the README section this is linked
-# from for how to set that mount up in the first place.
+# PARTIALLY VERIFIED FOR REAL on the production Proxmox VM: ran clean
+# against a real XFS-with-prjquota mount (`/var/lib/docker` on its own
+# 300GB disk) with zero errors -- confirms the container/Redis-lookup
+# plumbing (docker ps label filter, docker exec into the hub container,
+# ResourceLimitStore.get()) all works end to end on a real host. It ran
+# with zero users logged in yet, though, so the loop body -- the actual
+# `xfs_quota -x -c 'project ...'`/`limit -p bhard=...` calls -- has never
+# executed even once (nothing to iterate over). Re-run this once at least
+# one real dsh-demo-home-<user> volume exists and check its output/
+# `xfs_quota -x -c 'report -p'` to close that gap.
 #
 # Requires on the host: `docker` CLI, `xfs_quota` (xfsprogs package), root,
 # and the `hub` compose service running (used only to read Redis through

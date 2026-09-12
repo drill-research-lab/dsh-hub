@@ -4,7 +4,12 @@
 # subnet values used when they were added), so this always fully undoes
 # the lockdown even if the dispatcher container's IP has changed since.
 #
-# NOT VERIFIED FOR REAL -- see spark-lockdown-enable.sh's header for why.
+# Verified indirectly on the production Proxmox VM: enable.sh calls this
+# with --quiet on every run, and re-running enable.sh after a full stack
+# rebuild (new dispatcher IP, old rules for the previous IP still present
+# in DOCKER-USER) left exactly 2 rules behind, not 4 -- proof the cleanup
+# here actually ran and worked. Not yet exercised as a standalone "turn
+# the lockdown off entirely and leave it off" call.
 #
 # Usage: ./spark-lockdown-disable.sh [--quiet]
 
