@@ -62,18 +62,20 @@ if [[ -z "${SPARK_HOST:-}" || -z "${SPARK_PORT:-}" ]]; then
   SPARK_PORT="${SPARK_PORT:-80}"
 fi
 
-# Try both the bare compose service name and the project-prefixed
-# container name -- which one `docker inspect` accepts depends on the
-# compose project name in use on the real host, which this script can't
-# assume.
+# Find the container by the label `docker compose` itself stamps on every
+# container it creates, rather than guessing a name prefix -- the actual
+# container name depends on whatever the compose *project* name is (which
+# defaults to the directory the repo was cloned into, e.g. "dsh-hub" ->
+# "dsh-hub-dispatcher-1"), which this script can't assume and shouldn't
+# need to.
+container_id="$(docker ps -q --filter "label=com.docker.compose.service=$DISPATCHER_CONTAINER" | head -1)"
 DISPATCHER_IP=""
-for name in "$DISPATCHER_CONTAINER" "new-dsh-${DISPATCHER_CONTAINER}-1"; do
-  DISPATCHER_IP="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$DOCKER_NETWORK\"}}{{.IPAddress}}{{end}}" "$name" 2>/dev/null || true)"
-  [[ -n "$DISPATCHER_IP" ]] && break
-done
+if [[ -n "$container_id" ]]; then
+  DISPATCHER_IP="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$DOCKER_NETWORK\"}}{{.IPAddress}}{{end}}" "$container_id" 2>/dev/null || true)"
+fi
 if [[ -z "$DISPATCHER_IP" ]]; then
   echo "Could not resolve the Dispatcher container's IP on network '$DOCKER_NETWORK'." >&2
-  echo "Is it running? If it's named something else, set DISPATCHER_CONTAINER=<name>." >&2
+  echo "Is it running? If the compose service isn't named 'dispatcher', set DISPATCHER_CONTAINER=<service name>." >&2
   exit 1
 fi
 

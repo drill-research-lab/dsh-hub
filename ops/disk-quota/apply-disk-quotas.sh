@@ -51,24 +51,17 @@ fi
 mkdir -p "$(dirname "$PROJECT_ID_MAP")"
 touch "$PROJECT_ID_MAP"
 
-# The compose project name (and so the container name) depends on the
-# directory this was deployed into, which this script can't assume -- try
-# a couple of likely candidates, or let HUB_CONTAINER override outright.
-if [[ -n "${HUB_CONTAINER:-}" ]]; then
-  hub_candidates=("$HUB_CONTAINER")
-else
-  hub_candidates=(dsh-hub-hub-1 hub)
+# Find the container by the label `docker compose` stamps on every
+# container it creates, rather than guessing a name prefix -- the actual
+# container name depends on whatever the compose *project* name is (which
+# defaults to the directory the repo was cloned into, e.g. "dsh-hub" ->
+# "dsh-hub-hub-1"), which this script can't assume and shouldn't need to.
+if [[ -z "${HUB_CONTAINER:-}" ]]; then
+  HUB_CONTAINER="$(docker ps --filter 'label=com.docker.compose.service=hub' --format '{{.Names}}' | head -1)"
 fi
-HUB_CONTAINER=""
-for name in "${hub_candidates[@]}"; do
-  if docker inspect "$name" >/dev/null 2>&1; then
-    HUB_CONTAINER="$name"
-    break
-  fi
-done
 if [[ -z "$HUB_CONTAINER" ]]; then
-  echo "Could not find the hub container (tried: ${hub_candidates[*]})." >&2
-  echo "Set HUB_CONTAINER=<name> if it's named something else." >&2
+  echo "Could not find the hub container (no container labeled com.docker.compose.service=hub is running)." >&2
+  echo "Set HUB_CONTAINER=<name> if the compose service isn't named 'hub'." >&2
   exit 1
 fi
 
