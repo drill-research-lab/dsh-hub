@@ -2,7 +2,7 @@
 
 這份報告記錄目前 `dsh-hub`（GitHub：`drill-research-lab/dsh-hub`，本機路徑仍是 `new-DSH`）相對於實驗室內網系統規劃文件的完成度，哪些項目已經**用真實環境驗證過**、哪些**因為環境限制暫時擱置**、哪些**還沒開始**。之後每完成一段新工作，會回來更新這份報告，不會另外散落成多份文件。
 
-最後更新：2026-09-12（**接進實驗室既有的 AdGuard + Caddy 反向代理、真實網域名稱 `dsh-hub.islab.local` 完整驗證通過**：AdGuard DNS rewrite、內部 CA 簽的憑證、Caddyfile 反代設定、Hub 本身四層都串起來，`curl https://dsh-hub.islab.local/hub/login` 拿到真實的 islab 品牌登入頁 HTML；過程中排查出兩個真實部署坑——Caddyfile 裡的 `reverse_proxy` 目標 IP 複製貼上忘了換成實際值（導致 502）、`docker port` 用來確認 Hub 實際綁定位址是排查這類問題最可靠的方法；**正式部署到 Proxmox VM 完成**：`ops/spark-lockdown/` 三支腳本、`ops/disk-quota/apply-disk-quotas.sh` 都在真實環境跑過，前者完整驗證通過，後者只差等第一個真人使用者出現才能補完最後一小段；部署過程中抓到並修好一個真實 bug（兩支腳本猜容器名稱字首猜錯，改用 compose label 查找）；這個 repo 正式建到 GitHub、接上 CI（單元測試 + 四個 Dockerfile build 檢查，都在真正的 GitHub Actions 上跑過綠燈）；磁碟配額補完 `disk_mb` 這個維度；第三節「CPU/記憶體限制」完整實作並實測完成——新容器建立時套用預設值、管理員可對已在跑的容器即時 `docker update`；排隊位置提示列的視覺樣式改用從 dsh 實際頁面（真實瀏覽器 `getComputedStyle`）量到的色票／字型／圓角重做，取代原本自己瞎猜的等寬字＋青綠色方案；之前已完成：dsh 網頁內嵌排隊位置提示列；介面重新設計：Hub 全站 + Panel 換成 islab／應用密碼與資訊安全實驗室品牌，不再出現 JupyterHub 字樣；第六節：dsh 預設 provider/模型接好，過程中修好五個 bug——帳號格式檢查、Panel session 隨重啟失效、Dispatcher 不支援 streaming、API key 核發邏輯判斷依據錯誤、以及兩次手動修 Redis 資料造成的意外副作用）。
+最後更新：2026-09-12（**真人登入完整跑通、磁碟配額最後一塊也驗證完成**：正式環境登入時一度卡在 `ldap3.core.exceptions.LDAPSocketOpenError`，根因是 systemd-resolved 預設把 `.local` 這個 TLD 保留給 mDNS，沒有明確設定 routing domain 就不會把 `ldap-server.islab.local` 轉發給實驗室自己的 DNS server（即使 `resolvectl status` 顯示的 DNS server 完全正確也一樣）；修法是在 netplan 網卡設定加上 `nameservers.search: ["~local", "~."]`（前者讓 `.local` 走 unicast DNS 而不是 mDNS，後者是必須一起加的，否則 systemd-networkd 會因為看到明確的 routing domain 而把這張網卡的 `DNSDefaultRoute` 自動關掉，導致一般網域反而解析不了）；修完之後真人登入、開伺服器整條路都通了；因為這樣才第一次真的有使用者 volume 產生，補跑 `apply-disk-quotas.sh` 後 `xfs_quota -x -c 'report -p'` 顯示兩個使用者的 project 都拿到正確的 `Hard=10485760`（=10240 MB，跟 `.env` 設定值吻合），第三節「Container 資源限制」三個維度全部驗證完成；另外把校徽換成國立臺灣師範大學校徽（透過 `c.JupyterHub.logo_file`／`/hub/logo`，取代 favicon、導覽列、登入頁的 islab 幾何線條 SVG），並且發現 `@deepseek-ai/dsh`（DSH 本體的瀏覽器介面）只內建簡體中文和英文兩種語言，寫了 [ops/i18n/patch-zh-locale.mjs](ops/i18n/patch-zh-locale.mjs) 在 Docker build 時用 OpenCC 把安裝好的套件裡所有簡體字串/正規表示式/樣板字面值（36 個模組、1099 條）自動轉成台灣繁體用詞，轉換工具本身不會留在最終 image 裡；也補了 [ops/check-deployment.sh](ops/check-deployment.sh) 這支唯讀健康檢查腳本）；**接進實驗室既有的 AdGuard + Caddy 反向代理、真實網域名稱 `dsh-hub.islab.local` 完整驗證通過**：AdGuard DNS rewrite、內部 CA 簽的憑證、Caddyfile 反代設定、Hub 本身四層都串起來，`curl https://dsh-hub.islab.local/hub/login` 拿到真實的 islab 品牌登入頁 HTML；過程中排查出兩個真實部署坑——Caddyfile 裡的 `reverse_proxy` 目標 IP 複製貼上忘了換成實際值（導致 502）、`docker port` 用來確認 Hub 實際綁定位址是排查這類問題最可靠的方法；**正式部署到 Proxmox VM 完成**：`ops/spark-lockdown/` 三支腳本、`ops/disk-quota/apply-disk-quotas.sh` 都在真實環境跑過，前者完整驗證通過，後者只差等第一個真人使用者出現才能補完最後一小段；部署過程中抓到並修好一個真實 bug（兩支腳本猜容器名稱字首猜錯，改用 compose label 查找）；這個 repo 正式建到 GitHub、接上 CI（單元測試 + 四個 Dockerfile build 檢查，都在真正的 GitHub Actions 上跑過綠燈）；磁碟配額補完 `disk_mb` 這個維度；第三節「CPU/記憶體限制」完整實作並實測完成——新容器建立時套用預設值、管理員可對已在跑的容器即時 `docker update`；排隊位置提示列的視覺樣式改用從 dsh 實際頁面（真實瀏覽器 `getComputedStyle`）量到的色票／字型／圓角重做，取代原本自己瞎猜的等寬字＋青綠色方案；之前已完成：dsh 網頁內嵌排隊位置提示列；介面重新設計：Hub 全站 + Panel 換成 islab／應用密碼與資訊安全實驗室品牌，不再出現 JupyterHub 字樣；第六節：dsh 預設 provider/模型接好，過程中修好五個 bug——帳號格式檢查、Panel session 隨重啟失效、Dispatcher 不支援 streaming、API key 核發邏輯判斷依據錯誤、以及兩次手動修 Redis 資料造成的意外副作用）。
 
 ## 這次測試環境的重要背景
 
@@ -97,7 +97,7 @@
 
 **後續：正式 Proxmox VM 建好後，已經進一步驗證過（不再是純語法檢查）**：真的把資料碟格式化成 XFS、掛上 `prjquota`（`df -hT /var/lib/docker` 確認是 `xfs`），在上面跑 `sudo ./apply-disk-quotas.sh`，乾淨執行完畢、印出 `Done: 0 applied, 0 skipped.`，沒有任何錯誤——證明腳本裡查容器、進 Hub 容器讀 Redis 那整段管線（`docker ps` label 篩選、`docker exec`、`ResourceLimitStore.get()`）在真實環境下是通的。
 
-**還差最後一小塊**：因為驗證當下還沒有真人登入、沒有任何 `dsh-demo-home-<帳號>` volume，迴圈本體實際下 `xfs_quota -x -c 'project ...'`/`limit -p bhard=...` 那兩行**一次都還沒真的執行過**（沒有東西可以疊代）。等有第一個真人登入、產生第一個使用者 volume 之後，需要再跑一次這支腳本、並用 `sudo xfs_quota -x -c 'report -p' /var/lib/docker` 確認配額真的套用上去，才算完全補完。同一輪也把[ops/spark-lockdown/](ops/spark-lockdown/) 三支腳本裡「猜容器名稱字首」的 bug 一起修掉了（原本寫死 `new-dsh-` 這個本機開發環境的字首，真實部署目錄叫 `dsh-hub`、容器名稱對不起來，會直接抓不到），改成用 `com.docker.compose.service` label 查找，兩支腳本都同步套用同一個修法，且都已經驗證過。
+**最後一塊也補完了**：等到有真人（`islab`、`61447007s`）實際登入、產生了各自的 `dsh-demo-home-<帳號>` volume 之後，重跑一次 `apply-disk-quotas.sh`，`sudo xfs_quota -x -c 'report -p' /var/lib/docker` 顯示 `#1000`、`#1001` 兩個 project 都拿到了 `Hard = 10485760`（KB，換算正好是 `.env` 裡 `DEFAULT_DISK_MB=10240` 這個值）——迴圈本體實際下的 `xfs_quota -x -c 'project ...'`/`limit -p bhard=...` 這兩行終於真的執行過、且結果跟 Redis 裡存的設定值完全對得上。（過程中 `xfs_quota` 對 DSH 依賴樹裡大量 npm symlink 印出的 `skipping special file` 是正常現象，不是錯誤——project quota 只套用在實體檔案/目錄，symlink 本來就會被跳過。）第三節「Container 資源限制」到此三個維度（CPU / 記憶體 / 磁碟）都已經在真實 Proxmox VM 上完整驗證通過。同一輪也把[ops/spark-lockdown/](ops/spark-lockdown/) 三支腳本裡「猜容器名稱字首」的 bug 一起修掉了（原本寫死 `new-dsh-` 這個本機開發環境的字首，真實部署目錄叫 `dsh-hub`、容器名稱對不起來，會直接抓不到），改成用 `com.docker.compose.service` label 查找，兩支腳本都同步套用同一個修法，且都已經驗證過。
 | 統一開關 API（`PATCH /users/{id}/resource-limits`） | ✅ 已完成、已實測 | 見下方完整說明。 |
 
 ### CPU / 記憶體限制：完整實作與實測
@@ -328,24 +328,21 @@ messages: [{role: "developer", ...}, {role: "user", content: "Say OK."}]
 
 ## 下一步建議
 
-**這個 repo 已經正式部署到正式的 Proxmox VM 上了**（`hellman` 這台主機，8 vCPU / 40GB RAM / 300GB XFS+prjquota 資料碟，規格怎麼算的見 README「VM 規格建議」），不再只是本機 sandbox 的紙上驗證。目前真正還沒完成的項目：
+**這個 repo 已經正式部署到正式的 Proxmox VM 上了**（`hellman` 這台主機，8 vCPU / 40GB RAM / 300GB XFS+prjquota 資料碟，規格怎麼算的見 README「VM 規格建議」），不再只是本機 sandbox 的紙上驗證。真人登入、開伺服器、磁碟配額都已經端到端跑通，目前沒有已知的功能性缺口。
 
-**已完成、全部在真實 Proxmox VM 上驗證過：**
-1. 「三、CPU/記憶體限制」——完成並實測。
+**全部完成、全部在真實 Proxmox VM 上、用真人帳號驗證過：**
+1. 「三、CPU/記憶體/磁碟限制」——三個維度都完成並實測，磁碟配額最後一塊（真的下 `xfs_quota` 指令）也在真人登入產生使用者 volume 後補完驗證，`report -p` 顯示的 Hard 值跟 `.env` 設定完全吻合。
 2. 排隊提示列——後端邏輯、DOM 注入、視覺樣式三塊都完成並確認過外觀。
-3. 「六、防止繞過排隊系統」——[ops/spark-lockdown/](ops/spark-lockdown/) 在正式 VM 上真實跑過：Dispatcher 打 Spark 拿到 200，丟棄式測試 container 打 Spark 逾時失敗，整套堆疊重建後重跑 `enable.sh` 也正確處理了 Dispatcher 換 IP 的情況。過程中還抓到並修好一個真實 bug（容器名稱解析邏輯猜錯字首，改用 compose label 查找）。
-4. 「三、磁碟配額」的 Redis/容器/腳本管線——在真的 XFS + prjquota 磁碟上跑過 `apply-disk-quotas.sh`，乾淨執行無誤。
-
-**現在唯一剩下、卡在「還沒有人真的登入過」的事**：
-5. 反向代理（AdGuard + Caddy + 內部 CA 憑證）已經接好並驗證通過（`curl https://dsh-hub.islab.local/hub/login` 拿到真實的登入頁），代表現在真的可以拿瀏覽器打開這個網址、輸入 LLDAP 帳密登入了。
-6. 磁碟配額腳本裡實際下 `xfs_quota` 指令那幾行，因為驗證當下還沒有使用者 volume 存在，一次都還沒真的執行過（見上方「三、Container 資源限制」章節的說明）。**只要完成第 5 項（真人登入一次）**，就會自動產生第一個 `dsh-demo-home-<帳號>` volume，這時候重跑一次 `apply-disk-quotas.sh`、用 `xfs_quota -x -c 'report -p' /var/lib/docker` 確認配額真的生效，整個第三節就完全收尾了。
+3. 「六、防止繞過排隊系統」——[ops/spark-lockdown/](ops/spark-lockdown/) 在正式 VM 上真實跑過，且真人登入後重新確認規則仍然正確（Dispatcher 放行、其他網段擋下）。
+4. 反向代理（AdGuard + Caddy + 內部 CA 憑證）+ LDAP 認證——`https://dsh-hub.islab.local` 完整可用，真人帳密登入成功。過程中修好一個真實 bug：systemd-resolved 預設把 `.local` 保留給 mDNS，沒有明確 routing domain 就不會把 LDAP 主機名轉發給實驗室自己的 DNS（見上方最後更新說明的 netplan 修法）。
+5. 校徽換成國立臺灣師範大學校徽、DSH 網頁介面（`@deepseek-ai/dsh`）自動轉換成台灣繁體用詞——都已建置並在真實 image 裡驗證過。
 
 **理論上的長期考量、不影響現在的正確性：**
-7. 磁碟配額本身沒有問題，但 Proxmox VM 的虛擬磁碟終究不是文件原始設想的「獨立實體硬碟」，如果日後正式上線發現效能瓶頸，可能要重新評估；目前判斷不影響功能正確性，只是效能上的理論差異，先不列為待辦。
+6. 磁碟配額本身沒有問題，但 Proxmox VM 的虛擬磁碟終究不是文件原始設想的「獨立實體硬碟」，如果日後正式上線發現效能瓶頸，可能要重新評估；目前判斷不影響功能正確性，只是效能上的理論差異，先不列為待辦。
 
 **已完成、僅剩你確認/決定的：**
-8. Panel/Hub 介面重新設計——已完成全站，品牌換成 islab／應用密碼與資訊安全實驗室；殘留幾處刻意不動的技術性文字/無障礙標籤（原因見上方「介面重新設計」章節），除非你覺得需要更深入處理，否則這項算完成。
-9. 舊的本機測試環境（這個 sandbox）跟正式 VM 是兩份獨立的部署，本機那邊要不要繼續留著純粹看你需不需要，不影響正式環境。
+7. Panel/Hub 介面重新設計——已完成全站，品牌換成 islab／應用密碼與資訊安全實驗室；殘留幾處刻意不動的技術性文字/無障礙標籤（原因見上方「介面重新設計」章節），除非你覺得需要更深入處理，否則這項算完成。
+8. 舊的本機測試環境（這個 sandbox）跟正式 VM 是兩份獨立的部署，本機那邊要不要繼續留著純粹看你需不需要，不影響正式環境。
 
 **待查、非 bug 的觀察**：Panel 疑似每次輪詢佇列都重新走一次完整 OAuth handshake（見上方「待查、未確認的觀察」），還沒深入查，如果你操作時覺得卡頓再跟我說。
 
