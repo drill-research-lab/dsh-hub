@@ -45,6 +45,33 @@ docker compose up -d hub redis dispatcher panel
 
 切換 LDAP 使用新的 cookie secret 檔案，讓舊測試登入 cookie 失效。Hub 資料庫仍保留；同名 LDAP 帳號會對應原本同名的 Hub 身分。
 
+## 用網域名稱連進來（DNS + 共用反向代理）
+
+這個系統設計上只給實驗室內網/VPN（例如你們現有的 WireGuard）連得到，不對外開放，所以不需要公開簽發的憑證——沿用你們既有的「內部 CA 自簽憑證 + 共用反向代理」模式即可，跟 LDAP 用的 `islab-ca.crt` 是同一套做法。
+
+**1. 讓 Hub 能被別台機器連到**：預設 `HUB_BIND_ADDRESS=127.0.0.1`（只有這台主機自己連得到,給沒有反向代理的 dev sandbox 用）。如果共用的反向代理（Caddy）跑在別的機器上，把 `.env` 的 `HUB_BIND_ADDRESS` 改成這台主機的 LAN IP，然後重啟：
+
+```bash
+# .env 改成，例如：
+# HUB_BIND_ADDRESS=192.168.101.x
+docker compose up -d hub
+```
+
+**2. 發一張新主機名的憑證**：用你們既有的內部 CA 工具/腳本，幫想用的網域（例如 `dsh.islab.xxx`）發一張憑證，放到 Caddy 那台機器上。
+
+**3. 在 Caddy 那台機器的 Caddyfile 加一段**（`reverse_proxy` 目標填這台 dsh-hub VM 的 LAN IP，不是 127.0.0.1）：
+
+```
+dsh.islab.xxx {
+    tls /path/to/dsh.islab.xxx.crt /path/to/dsh.islab.xxx.key
+    reverse_proxy 192.168.101.x:9000
+}
+```
+
+**4. 在你們自架的 AdGuard 上加一筆內部 DNS 紀錄**：`dsh.islab.xxx` → Caddy 那台機器的 IP（不是直接指到 dsh-hub VM，流程是「使用者 → DNS 解析到 Caddy → Caddy 反代到 dsh-hub VM:9000」）。
+
+**上線後留意**：如果登入後出現重導向迴圈、或頁面裡的連結變成 `http://` 而不是 `https://`，通常是因為 JupyterHub 不知道自己被包在 HTTPS 反向代理後面——Caddy 的 `reverse_proxy` 預設就會加上 `X-Forwarded-Proto`/`X-Forwarded-For` 標頭，一般情況下不用額外設定；如果真的遇到這個問題再回來處理，不要沒遇到就先加。
+
 ## 容器行為
 
 相同帳號連回同一個執行中的容器。登出只結束登入狀態，容器繼續運行；關閉分頁也不會停止容器。手動在 `/hub/home` 停止容器時，DockerSpawner 只會停止它，不會移除（`remove=False`），下次登入會喚醒同一個容器。使用者 home 目錄（`/home/demo`）掛載在每個帳號各自的具名 volume（`dsh-demo-home-<帳號>`），容器被停止、重建甚至手動刪除後，資料仍保留在該 volume 裡。

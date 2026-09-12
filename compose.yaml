@@ -4,7 +4,12 @@ services:
       context: .
       dockerfile: hub/Dockerfile
     ports:
-      - "127.0.0.1:9000:8000"
+      # Defaults to loopback-only, matching a dev sandbox with no reverse
+      # proxy in front. In production, set HUB_BIND_ADDRESS in .env to the
+      # host's LAN IP so an external reverse proxy (Caddy, on a separate
+      # machine) can actually reach it -- 127.0.0.1 is not reachable from
+      # anywhere but this host itself.
+      - "${HUB_BIND_ADDRESS:-127.0.0.1}:9000:8000"
     env_file:
       - path: .env
         required: false
