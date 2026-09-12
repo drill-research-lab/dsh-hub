@@ -1,15 +1,19 @@
-# Append this block to the shared Caddy instance's existing Caddyfile
-# (the one already fronting other lab services). Replace the hostname,
-# cert/key paths, and reverse_proxy target with your real values.
+# Append this block to the shared Caddy instance's existing Caddyfile on
+# Diffie (/usr/local/etc/caddy/Caddyfile) -- back it up first:
+#   sudo cp /usr/local/etc/caddy/Caddyfile /usr/local/etc/caddy/Caddyfile.bak.$(date +%Y%m%d_%H%M%S)
 #
-# - tls points at the two files issue-cert.sh produced (copy them here
-#   first, wherever your Caddy config expects certs to live).
+# - tls points at the two files issue-cert.sh produced, copied to
+#   /usr/local/etc/caddy/certs/ (see README's "用網域名稱連進來" section
+#   for the cp/chown/chmod commands -- Caddy runs as `www` on Diffie).
 # - reverse_proxy targets the dsh-hub VM's LAN IP on port 9000 -- the host
 #   port compose.yaml maps to Hub's 8000, bound to HUB_BIND_ADDRESS (see
-#   .env). Not 127.0.0.1: that's loopback on the dsh-hub VM, unreachable
-#   from this Caddy machine.
+#   .env). Not 127.0.0.1: Caddy runs on Diffie, not on the dsh-hub VM
+#   itself, so loopback here would mean Diffie, not dsh-hub.
+#
+# Apply with `sudo caddy validate --config ...` then `sudo service caddy
+# reload` (not a full restart) -- see README.
 
-dsh.islab.xxx {
-    tls /path/to/dsh.islab.xxx.crt /path/to/dsh.islab.xxx.key
+dsh-hub.islab.local {
     reverse_proxy 192.168.101.x:9000
+    tls /usr/local/etc/caddy/certs/dsh-hub.islab.local.crt /usr/local/etc/caddy/certs/dsh-hub.islab.local.key
 }

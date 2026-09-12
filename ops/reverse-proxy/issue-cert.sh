@@ -10,9 +10,9 @@
 # named differently.
 #
 # Usage:
-#   ./issue-cert.sh dsh.islab.xxx
-#   ./issue-cert.sh dsh.islab.xxx 3650          # custom validity in days (default 825)
-#   CA_CERT=my-ca.pem CA_KEY=my-ca-key.pem ./issue-cert.sh dsh.islab.xxx
+#   ./issue-cert.sh dsh-hub.islab.local
+#   ./issue-cert.sh dsh-hub.islab.local 3650          # custom validity in days (default 825)
+#   CA_CERT=my-ca.pem CA_KEY=my-ca-key.pem ./issue-cert.sh dsh-hub.islab.local
 
 set -euo pipefail
 
