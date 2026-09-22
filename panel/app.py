@@ -363,10 +363,19 @@ document.getElementById('limit-save').addEventListener('click', async () => {
   fetchAllLimits();
 });
 
-fetchQueue();
-fetchKeys(false);
-fetchMyLimit();
-setInterval(fetchQueue, 4000);
+// Sequenced, not fired in parallel: on first load there's no session
+// cookie yet, so each of these independently protected calls used to
+// kick off its own OAuth handshake at the same time, all racing to set
+// the same service-panel-oauth-state cookie and stomping on each other
+// -- every login attempt failed with "oauth state does not match" (see
+// STATUS.md). Awaiting the first call lets it finish establishing the
+// session cookie before the next ones fire, so they just reuse it.
+(async () => {
+  await fetchQueue();
+  await fetchKeys(false);
+  await fetchMyLimit();
+  setInterval(fetchQueue, 4000);
+})();
 </script>
 </body>
 </html>
