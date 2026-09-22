@@ -57,14 +57,28 @@ class Queue:
         await self.redis.hset(key, mapping={"status": status, "finished_at": time.time()})
         await self.redis.expire(key, DONE_TTL)
 
-    async def list_pending(self):
-        ids = await self.redis.lrange(PENDING_KEY, 0, -1)
-        items = []
-        for rid in ids:
+    async def list_queue(self):
+        """Everything worth showing in the queue view: requests currently
+        running (dequeued from PENDING_KEY, tracked only in RUNNING_KEY),
+        in start order, followed by requests still waiting their turn. A
+        running request used to simply vanish from this view the moment a
+        worker picked it up -- exactly the one thing most worth seeing."""
+        running_ids = await self.redis.smembers(RUNNING_KEY)
+        running_items = []
+        for rid in running_ids:
             meta = await self.redis.hgetall(META_KEY_PREFIX + rid)
             if meta:
-                items.append(meta)
-        return items
+                running_items.append(meta)
+        running_items.sort(key=lambda m: float(m.get("started_at", 0)))
+
+        pending_ids = await self.redis.lrange(PENDING_KEY, 0, -1)
+        pending_items = []
+        for rid in pending_ids:
+            meta = await self.redis.hgetall(META_KEY_PREFIX + rid)
+            if meta:
+                pending_items.append(meta)
+
+        return running_items + pending_items
 
     async def status_for_user(self, user):
         """('running', None) if user has an in-flight request, ('queued', N)

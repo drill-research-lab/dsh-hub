@@ -167,7 +167,7 @@ async function fetchQueue() {
   document.getElementById('audit').hidden = !isAdmin;
   document.getElementById('admin-keys').hidden = !isAdmin;
   document.getElementById('limits-admin').hidden = !isAdmin;
-  renderRows(data.pending);
+  renderRows(data.items);
   if (isAdmin) {
     document.getElementById('concurrency-input').value = data.concurrency;
     fetchAudit();
@@ -402,13 +402,13 @@ class IndexHandler(BaseHandler):
 class QueueApiHandler(BaseHandler):
     @tornado.web.authenticated
     async def get(self):
-        pending = await self.queue.list_pending()
+        items = await self.queue.list_queue()
         concurrency = await self.queue.get_concurrency(DEFAULT_CONCURRENCY)
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({
             "user": self.current_user["name"],
             "admin": bool(self.current_user.get("admin")),
-            "pending": pending,
+            "items": items,
             "concurrency": concurrency,
         }))
 
