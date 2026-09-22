@@ -13,5 +13,7 @@
 !panel/**
 !ops/i18n/
 !ops/i18n/**
+!ops/dsh-trusted-origin/
+!ops/dsh-trusted-origin/**
 **/__pycache__/
 **/*.pyc

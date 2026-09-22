@@ -72,6 +72,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        DSH_PUBLIC_HOSTNAME: ${DSH_PUBLIC_HOSTNAME:-}
     profiles: [build]
   redis:
     image: redis:7-alpine

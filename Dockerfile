@@ -20,6 +20,23 @@ RUN cd /tmp/i18n-tools \
     && npm install --no-save opencc-js acorn \
     && node patch-zh-locale.mjs "$(npm root -g)" \
     && cd / && rm -rf /tmp/i18n-tools
+
+# dsh's Settings/Credentials pages only work when the browser's own URL is
+# 127.0.0.1/localhost (see STATUS.md) -- reasonable for dsh's default
+# single-user-on-your-own-machine use case, but it means those pages are
+# permanently broken behind a real reverse-proxied domain like ours. Verified
+# this check is client-side only: dsh-api-settings-controller (the server
+# side of these RPCs) enforces nothing based on hostname/origin, so trusting
+# our own domain here doesn't unlock anything an authenticated session
+# couldn't already reach from the browser's own JS console. Leave
+# DSH_PUBLIC_HOSTNAME unset to skip this (Settings pages just stay disabled,
+# same as unpatched dsh).
+ARG DSH_PUBLIC_HOSTNAME=
+COPY ops/dsh-trusted-origin/patch-trusted-hostname.mjs /tmp/trusted-origin-tools/patch-trusted-hostname.mjs
+RUN cd /tmp/trusted-origin-tools \
+    && npm install --no-save acorn \
+    && node patch-trusted-hostname.mjs "$(npm root -g)" "${DSH_PUBLIC_HOSTNAME}" \
+    && cd / && rm -rf /tmp/trusted-origin-tools
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     'jupyter-server>=2,<3' 'jupyter-server-proxy==4.5.0' \
