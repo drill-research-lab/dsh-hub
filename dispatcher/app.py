@@ -49,11 +49,28 @@ def _bearer_token(handler):
 
 
 class ChatCompletionsHandler(tornado.web.RequestHandler):
-    def initialize(self, queue, pending_channels, pending_bodies, api_keys):
+    def initialize(self, queue, pending_channels, pending_bodies, api_keys, running_tasks):
         self.queue = queue
         self.pending_channels = pending_channels
         self.pending_bodies = pending_bodies
         self.api_keys = api_keys
+        self.running_tasks = running_tasks
+        self.request_id = None
+
+    def on_connection_close(self):
+        # Tornado calls this the moment the caller disconnects (browser tab
+        # closed, "stop" button aborts the fetch, network drop) -- even
+        # mid-stream, while process_one() is still forwarding tokens from
+        # Spark. That worker runs as its own independent asyncio task (see
+        # worker_loop), so without this it has no way to learn the caller
+        # is gone and just keeps running Spark's response to completion (or
+        # the 300s timeout), holding a concurrency slot the whole time for
+        # output nobody will ever see. Cancel it so the slot frees up
+        # immediately and Spark's own connection gets torn down too.
+        if self.request_id is not None:
+            task = self.running_tasks.get(self.request_id)
+            if task is not None and not task.done():
+                task.cancel()
 
     async def post(self):
         user = await self.api_keys.verify(_bearer_token(self))
@@ -69,6 +86,7 @@ class ChatCompletionsHandler(tornado.web.RequestHandler):
             return
 
         request_id = uuid.uuid4().hex
+        self.request_id = request_id
         channel = asyncio.Queue()
         self.pending_channels[request_id] = channel
         self.pending_bodies[request_id] = body
@@ -140,6 +158,7 @@ class HealthHandler(tornado.web.RequestHandler):
 async def process_one(queue, request_id, body, channel, state):
     status_sent = False
     final_status = 502
+    final_label = "error"
     try:
         await queue.mark_running(request_id)
 
@@ -162,25 +181,35 @@ async def process_one(queue, request_id, body, channel, state):
         try:
             resp = await client.fetch(req, raise_error=False)
             final_status = resp.code
+            final_label = "done" if final_status < 400 else "error"
             if not status_sent:
                 # nothing streamed -- forward the (small, buffered) body as-is,
                 # whether that's an error payload or a real non-streamed reply
                 channel.put_nowait(("status", resp.code))
                 if resp.body:
                     channel.put_nowait(("chunk", resp.body))
+        except asyncio.CancelledError:
+            # ChatCompletionsHandler.on_connection_close() cancelled us: the
+            # caller is gone, so there's no channel reader left to write to
+            # and nothing to forward -- just record it and let the cancel
+            # propagate (client.fetch()'s own connection to Spark is torn
+            # down as part of this task being cancelled).
+            final_label = "cancelled"
+            raise
         except Exception as exc:  # connection errors, timeouts, etc.
             final_status = 502
+            final_label = "error"
             if not status_sent:
                 channel.put_nowait(("status", 502))
                 error_body = json.dumps({"error": {"message": f"dispatcher upstream error: {exc}"}})
                 channel.put_nowait(("chunk", error_body.encode()))
     finally:
         channel.put_nowait(("done", None))
-        await queue.mark_done(request_id, status="done" if final_status < 400 else "error")
+        await queue.mark_done(request_id, status=final_label)
         state["in_flight"] -= 1
 
 
-async def worker_loop(queue, pending_channels, pending_bodies, state):
+async def worker_loop(queue, pending_channels, pending_bodies, running_tasks, state):
     while True:
         limit = await queue.get_concurrency(DEFAULT_CONCURRENCY)
         if state["in_flight"] >= limit:
@@ -196,15 +225,17 @@ async def worker_loop(queue, pending_channels, pending_bodies, state):
             await queue.mark_done(request_id, status="abandoned")
             continue
         state["in_flight"] += 1
-        asyncio.create_task(process_one(queue, request_id, body, channel, state))
+        task = asyncio.create_task(process_one(queue, request_id, body, channel, state))
+        running_tasks[request_id] = task
+        task.add_done_callback(lambda _t, rid=request_id: running_tasks.pop(rid, None))
 
 
-def make_app(queue, pending_channels, pending_bodies, api_keys):
+def make_app(queue, pending_channels, pending_bodies, api_keys, running_tasks):
     return tornado.web.Application(
         [
             (r"/v1/chat/completions", ChatCompletionsHandler,
              dict(queue=queue, pending_channels=pending_channels, pending_bodies=pending_bodies,
-                  api_keys=api_keys)),
+                  api_keys=api_keys, running_tasks=running_tasks)),
             (r"/v1/models", ModelsHandler, dict(api_keys=api_keys)),
             (r"/v1/queue/position", QueuePositionHandler, dict(queue=queue, api_keys=api_keys)),
             (r"/healthz", HealthHandler),
@@ -217,10 +248,11 @@ async def main():
     api_keys = ApiKeyStore(queue.redis)
     pending_channels = {}
     pending_bodies = {}
+    running_tasks = {}
     state = {"in_flight": 0}
-    app = make_app(queue, pending_channels, pending_bodies, api_keys)
+    app = make_app(queue, pending_channels, pending_bodies, api_keys, running_tasks)
     app.listen(PORT)
-    asyncio.create_task(worker_loop(queue, pending_channels, pending_bodies, state))
+    asyncio.create_task(worker_loop(queue, pending_channels, pending_bodies, running_tasks, state))
     await asyncio.Event().wait()
 
 
