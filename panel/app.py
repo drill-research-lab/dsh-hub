@@ -593,7 +593,14 @@ def main():
         default_disk_mb=int(os.environ.get("DEFAULT_DISK_MB", DEFAULT_DISK_MB)),
     )
     app = make_app(queue, api_keys, resource_limits)
-    app.listen(PORT)
+    # xheaders=True: trust X-Forwarded-Proto/-For/-Host from the reverse
+    # proxy chain (Caddy -> Hub -> jupyter-server-proxy -> here). Without
+    # it, Tornado sees this connection as plain http (its own listener has
+    # no TLS) and builds OAuth redirect/callback URLs with the wrong scheme
+    # -- browser is on https, so the state cookie set under Tornado's
+    # (wrong) http assumption never round-trips correctly, and every OAuth
+    # handshake fails with "oauth state does not match" (see STATUS.md).
+    app.listen(PORT, xheaders=True)
     tornado.ioloop.IOLoop.current().start()
 
 
